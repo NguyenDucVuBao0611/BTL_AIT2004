@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thiết kế Hệ thống: Nhận dạng ngôn ngữ ký hiệu</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --bg-color: #f8fafc;
+            --text-color: #1e293b;
+            --code-bg: #1e1e1e;
+            --code-text: #d4d4d4;
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: #ffffff;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        h1, h2, h3 {
+            color: var(--primary-color);
+            margin-top: 1.5em;
+        }
+
+        h1 {
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 10px;
+            text-align: center;
+        }
+
+        h2 {
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 5px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 0.95em;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            text-align: left;
+        }
+
+        th {
+            background-color: #f1f5f9;
+            font-weight: 600;
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            color: var(--code-text);
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+
+        code {
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .highlight-box {
+            background-color: #eff6ff;
+            border-left: 4px solid var(--primary-color);
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        ul, ol {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Hệ thống Nhận dạng Ngôn ngữ Ký hiệu</h1>
+
+    <h2>A. Tổng quan kiến ​​trúc</h2>
+    <p>Hệ thống bao gồm 6 lớp độc lập: người dùng truy cập trình duyệt (webcam), qua proxy Nginx đến API cuối cùng, điều phối phụ trợ giữa Redis Queue, PostgreSQL Sớm chuyển đến Dịch vụ AI. AI Service xử lý khung theo quy trình 5 bước rồi trả kết quả JSON về Backend → TTS phát âm và hiển thị văn bản trên Frontend.</p>
+    <div class="highlight-box">
+        <strong>Luồng dữ liệu chính:</strong><br>
+        Khung hình webcam (JPEG/30fps) → WebSocket → Backend → Hàng đợi Redis → Dịch vụ AI (MediaPipe + LSTM) → Kết quả JSON → Backend → WebSocket → Frontend (văn bản + âm thanh)
+    </div>
+
+    <h2>B. Danh sách Dịch vụ</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Dịch vụ</th>
+                <th>Nhiệm vụ</th>
+                <th>Công nghệ</th>
+               
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Giao diện người dùng (Frontend)</td>
+                <td>Luồng camera, hiển thị văn bản, phát âm thanh</td>
+                <td>React + Vite, API WebSocket, API Web Speech</td>
+                
+            </tr>
+            <tr>
+                <td>API phụ trợ (Backend)</td>
+                <td>Auth, lịch sử, điều phối, TTS</td>
+                <td>FastAPI (Python) hoặc Node.js/Express</td>
+                
+            </tr>
+            <tr>
+                <td>Dịch vụ AI (AI Service)</td>
+                <td>Đường ống xử lý AI</td>
+                <td>Python, MediaPipe, TensorFlow/Keras, OpenCV</td>
+               
+            </tr>
+            <tr>
+                <td>Cơ sở dữ liệu (Database)</td>
+                <td>Lưu từ vựng, lịch sử</td>
+                <td>PostgreSQL 15</td>
+                
+            </tr>
+            <tr>
+                <td>Redis</td>
+                <td>Hàng đợi khung hình, xuất bản/đăng ký thời gian thực</td>
+                <td>Redis 7</td>
+                
+            </tr>
+            <tr>
+                <td>Nginx</td>
+                <td>Máy chủ proxy ngược, nâng cấp WebSocket, SSL</td>
+                <td>Nginx Alpine</td>
+                
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>C. Cơ sở dữ liệu thiết kế</h2>
+    <pre><code class="language-sql">-- Bảng từ vựng ký hiệu
+CREATE TABLE vocabulary (
+  id         SERIAL PRIMARY KEY,
+  sign_label VARCHAR(100) NOT NULL UNIQUE,  -- "hello", "thank_you"...
+  description TEXT,
+  video_demo_url VARCHAR(255),
+  language   VARCHAR(10) DEFAULT 'vn',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Bảng lịch sử dịch
+CREATE TABLE translation_history (
+  id           SERIAL PRIMARY KEY,
+  session_id   UUID NOT NULL,
+  sign_label   VARCHAR(100) REFERENCES vocabulary(sign_label),
+  confidence   FLOAT,           -- 0.0 – 1.0
+  raw_text     TEXT,
+  tts_audio_url VARCHAR(255),   -- optional, cache audio
+  translated_at TIMESTAMP DEFAULT NOW()
+);</code></pre>
+
+    <h2>D. Pipeline AI — Chi tiết</h2>
+    <p>Tại đây bạn có thể tìm thấy MediaPipe + LSTM và 3D-CNN:</p>
+    <ul>
+        <li><strong>MediaPipe</strong> (của Google, đã được huấn luyện trước) có thể xử lý đồng thời 21 điểm đặc trưng và 33 điểm đặc trưng tư thế (~5ms/khung hình) — bộ trích xuất đặc trưng hiện đã có sẵn.</li>
+        <li><strong>LSTM</strong> nhẹ nhàng (~500KB), huấn luyện nhanh với tập dữ liệu nhỏ (~1000 mẫu/lớp), phù hợp thời gian 3 tuần.</li>
+        <li>Tổng thời gian suy luận: ~30–50ms/khung hình trên CPU, trong thời gian thực.</li>
+    </ul>
+
+    <pre><code>Frame JPEG (640×480) 
+ ↓ OpenCV resize → 640×480 normalize 
+ ↓ MediaPipe Holistic → 21 hand + 33 pose landmarks = 63 keypoints × 3 (x,y,z) = 189 float/frame 
+ ↓ Buffer 30 frames liên tiếp → tensor shape [30, 189] 
+ ↓ LSTM(128) → LSTM(64) → Dense(num_classes) → Softmax 
+ ↓ Sliding window (5 frame majority vote) + threshold ≥ 0.85 
+ ↓ Output: {"label": "xin_chào", "confidence": 0.93}</code></pre>
+    <p><strong>Hậu xử lý (Làm mịn):</strong> Dùng cửa sổ trượt 5 khung — chỉ công nhận kết quả khi ≥3/5 khung liên tiếp đồng ý cùng 1 nhãn, tránh giật/nhiễu.</p>
+
+    <h2>E. Luồng dữ liệu thời gian thực (WebSocket)</h2>
+    <ol>
+        <li><strong>Frontend:</strong> getUserMedia() → canvas.captureStream(15fps)</li>
+        <li><strong>Frontend:</strong> encode frame → base64 JPEG → send qua WebSocket</li>
+        <li><strong>Backend:</strong> nhận frame → push vào Redis List (<code>LPUSH frame_queue</code>)</li>
+        <li><strong>AI Service:</strong> <code>BLPOP frame_queue</code> → xử lý pipeline → publish kết quả Redis channel</li>
+        <li><strong>Backend:</strong> subscribe Redis channel → nhận kết quả → gửi về Frontend qua WebSocket</li>
+        <li><strong>Frontend:</strong> nhận JSON <code>{label, confidence}</code> → hiển thị text + gọi TTS</li>
+    </ol>
+
+    
+
+    <h2>G. Phân công 3 người (3 tuần)</h2>
+    
+    <h3>Người 1 — AI Engineer (Trọng tâm)</h3>
+    <p><em>Xây dựng toàn bộ đường dẫn AI</em></p>
+    <table>
+        <thead>
+            <tr><th>Tuần</th><th>Nhiệm vụ</th><th>Đầu ra</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>1</td><td>Bộ dữ liệu (300–500 mẫu/5 lớp VN), thiết lập MediaPipe, bao gồm các điểm chính.</td><td>Tập lệnh thu thập + keypoint CSV</td></tr>
+            <tr><td>2</td><td>Đào tạo mô hình LSTM, đánh giá độ chính xác, xuất mô hình .h5/.tflite</td><td>Đánh giá tập tin mô hình + sổ tay</td></tr>
+            <tr><td>3</td><td>Đóng gói AI Service (FastAPI/Flask), connect Redis, real-time inference test</td><td>Docker container ai-service hoạt động</td></tr>
+        </tbody>
+    </table>
+
+    <h3>Người 2 — Kỹ sư phụ trợ (Backend)</h3>
+    <p><em>API, cơ sở dữ liệu, kiểu TTS</em></p>
+    <table>
+        <thead>
+            <tr><th>Tuần</th><th>Nhiệm vụ</th><th>Đầu ra</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>1</td><td>Thiết lập FastAPI/Node.js, lược đồ PostgreSQL, từ vựng API CRUD + lịch sử</td><td>API endpoints active + Swagger</td></tr>
+            <tr><td>2</td><td>Máy chủ WebSocket, Redis pub/sub giao tiếp với AI Service.</td><td>Nguồn chuyển tiếp WebSocket</td></tr>
+            <tr><td>3</td><td>Tích hợp gTTS/Edge-TTS, Nginx config, Docker Compose, test end-to-end</td><td>docker-compose up chạy thành công</td></tr>
+        </tbody>
+    </table>
+
+    <h3>Người 3 — Kỹ sư Frontend</h3>
+    <p><em>Giao diện người dùng/UX, camera streaming</em></p>
+    <table>
+        <thead>
+            <tr><th>Tuần</th><th>Nhiệm vụ</th><th>Đầu ra</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>1</td><td>Thiết lập React + Vite, thành phần Camera (getUserMedia), bố cục giao diện</td><td>Trang web có camera trực tiếp</td></tr>
+            <tr><td>2</td><td>Kết nối WebSocket, xử lý văn bản thời gian thực và API Web Speech (TTS).</td><td>Hiển thị văn bản + âm thanh khi nhận dữ liệu</td></tr>
+            <tr><td>3</td><td>Trang lịch sử dịch (gọi REST API), đánh bóng UX, đáp ứng, video demo</td><td>Hoàn thiện ứng dụng + ghi demo</td></tr>
+        </tbody>
+    </table>
+
+    <h2>H. Lịch trình 3 tuần</h2>
+    <ul>
+        <li><strong>Tuần 1 — Nền tảng:</strong>
+            <ul>
+                <li>[AI] Thu thập dữ liệu + thiết lập đường dẫn MediaPipe</li>
+                <li>[BE] Thiết lập dự án, lược đồ cơ sở dữ liệu, API REST cơ bản</li>
+                <li>[FE] Thiết lập React, thành phần camera, đoạn mã giả lập máy khách WebSocket</li>
+                <li><em>Cuối tuần:</em> Chốt hợp đồng API đồng bộ hóa nhóm (định dạng JSON)</li>
+            </ul>
+        </li>
+        <li><strong>Tuần 2 — Tích hợp cốt lõi:</strong>
+            <ul>
+                <li>[AI] Mô hình đào tạo, xuất file, bắt đầu Dịch vụ AI</li>
+                <li>[BE] Máy chủ WebSocket, Redis pub/sub, relay kết quả</li>
+                <li>[FE] Nhận dữ liệu WebSocket, hiển thị văn bản + âm thanh</li>
+                <li><em>Cuối tuần:</em> Demo luồng dữ liệu end-to-end (dù chưa đẹp)</li>
+            </ul>
+        </li>
+        <li><strong>Tuần 3 — Đánh bóng & Triển khai:</strong>
+            <ul>
+                <li>[AI] Tinh chỉnh mô hình, tối ưu hóa suy luận, viết README AI</li>
+                <li>[BE] Hoàn thiện TTS, Nginx, Docker Compose, API</li>
+                <li>[FE] Trang lịch sử, UI/UX hoàn thiện, video demo</li>
+                <li><em>Cuối tuần:</em> Triển khai localhost, quay demo, viết báo cáo</li>
+            </ul>
+        </li>
+    </ul>
+
+    <h2>I. Điểm cộng báo cáo</h2>
+    <ul>
+        <li><strong>Tăng cường dữ liệu cho keypoint (Data Augmentation):</strong>
+            <ul>
+                <li>Xoay ngẫu nhiên ±15° trên các điểm chính.</li>
+                <li>Biến dạng thời gian (kéo giãn/nén 30 khung hình).</li>
+                <li>Mirror flip (đối xứng tay trái/phải) → Tăng tập dữ liệu 5–10× chỉ bằng numpy.</li>
+            </ul>
+        </li>
+        <li><strong>Tối ưu tốc độ suy luận:</strong>
+            <ul>
+                <li>Chuyển mô hình sang TensorFlow Lite → giảm từ ~80ms xuống ~20ms/frame.</li>
+                <li>Hoặc dùng ONNX Runtime xuất từ ​​Keras.</li>
+                <li><em>Báo cáo benchmark:</em> FPS trước/sau → số liệu cụ thể rất thuyết phục.</li>
+            </ul>
+        </li>
+        <li><strong>Bonus nhỏ nhưng hay:</strong>
+            <ul>
+                <li>Thanh tin cậy (Confidence bar) hiển thị thời gian thực trên UI.</li>
+                <li>Cửa sổ trượt đa lớp (hiển thị top 3 dự đoán).</li>
+                <li>Log độ trễ của WebSocket → chứng minh thời gian thực < 100ms.</li>
+            </ul>
+        </li>
+        <li><strong>Gợi ý tập dữ liệu để bắt đầu nhanh:</strong>
+            Sử dụng WLASL hoặc tự quay 5–10 ký hiệu tiếng Việt cơ bản (xin chào, cảm ơn, có, không, tạm biệt). Với MediaPipe + LSTM, 200 mẫu/lớp có thể đạt độ chính xác >85%.
+        </li>
+    </ul>
+
+</div>
+
+</body>
+</html>
