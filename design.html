@@ -3,309 +3,496 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Thiết kế Hệ thống: Nhận dạng ngôn ngữ ký hiệu</title>
+    <title>Thiết kế hệ thống AI nhận diện ngôn ngữ ký hiệu realtime</title>
     <style>
-        :root {
-            --primary-color: #2563eb;
-            --bg-color: #f8fafc;
-            --text-color: #1e293b;
-            --code-bg: #1e1e1e;
-            --code-text: #d4d4d4;
-            --border-color: #e2e8f0;
-        }
-
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             line-height: 1.6;
-            color: var(--text-color);
-            background-color: var(--bg-color);
-            margin: 0;
-            padding: 20px;
-        }
-
-        .container {
+            color: #333;
             max-width: 1000px;
             margin: 0 auto;
-            background: #ffffff;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            background-color: #fff;
             padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-
-        h1, h2, h3 {
-            color: var(--primary-color);
-            margin-top: 1.5em;
-        }
-
         h1 {
-            border-bottom: 2px solid var(--primary-color);
-            padding-bottom: 10px;
+            color: #2c3e50;
             text-align: center;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            margin-bottom: 30px;
         }
-
         h2 {
-            border-bottom: 1px solid var(--border-color);
+            color: #2980b9;
+            border-bottom: 1px solid #eee;
             padding-bottom: 5px;
+            margin-top: 30px;
         }
-
+        h3 {
+            color: #34495e;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
-            margin: 20px 0;
-            font-size: 0.95em;
+            margin-bottom: 20px;
         }
-
         th, td {
-            padding: 12px 15px;
-            border: 1px solid var(--border-color);
+            border: 1px solid #ddd;
+            padding: 12px;
             text-align: left;
         }
-
         th {
-            background-color: #f1f5f9;
-            font-weight: 600;
+            background-color: #f2f2f2;
+            font-weight: bold;
+            color: #333;
         }
-
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
         pre {
-            background-color: var(--code-bg);
-            color: var(--code-text);
+            background-color: #272822;
+            color: #f8f8f2;
             padding: 15px;
-            border-radius: 8px;
+            border-radius: 5px;
             overflow-x: auto;
             font-family: 'Courier New', Courier, monospace;
-            font-size: 0.9em;
-            line-height: 1.5;
+            font-size: 14px;
         }
-
         code {
             font-family: 'Courier New', Courier, monospace;
         }
-
-        .highlight-box {
-            background-color: #eff6ff;
-            border-left: 4px solid var(--primary-color);
+        .note {
+            background-color: #e8f4f8;
+            border-left: 4px solid #3498db;
             padding: 15px;
             margin: 20px 0;
         }
-
         ul, ol {
-            padding-left: 20px;
+            margin-bottom: 20px;
         }
-
         li {
             margin-bottom: 8px;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .card {
+            border: 1px solid #ddd;
+            padding: 20px;
+            border-radius: 8px;
+            background-color: #fafafa;
+        }
+        .card h4 {
+            margin-top: 0;
+            color: #c0392b;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
         }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Hệ thống Nhận dạng Ngôn ngữ Ký hiệu</h1>
+    <h1>Bản thiết kế hệ thống AI nhận diện ngôn ngữ ký hiệu realtime</h1>
 
-    <h2>A. Tổng quan kiến ​​trúc</h2>
-    <p>Hệ thống bao gồm 6 lớp độc lập: người dùng truy cập trình duyệt (webcam), qua proxy Nginx đến API cuối cùng, điều phối phụ trợ giữa Redis Queue, PostgreSQL Sớm chuyển đến Dịch vụ AI. AI Service xử lý khung theo quy trình 5 bước rồi trả kết quả JSON về Backend → TTS phát âm và hiển thị văn bản trên Frontend.</p>
-    <div class="highlight-box">
-        <strong>Luồng dữ liệu chính:</strong><br>
-        Khung hình webcam (JPEG/30fps) → WebSocket → Backend → Hàng đợi Redis → Dịch vụ AI (MediaPipe + LSTM) → Kết quả JSON → Backend → WebSocket → Frontend (văn bản + âm thanh)
+    <h2>A. Tổng quan kiến trúc</h2>
+    <p>Hệ thống hoạt động theo một pipeline tuyến tính: <strong>webcam → MediaPipe → keypoint extraction → sequence buffer → model inference → smoothing → hiển thị kết quả</strong>. Không có microservice, không có cloud — mọi thứ chạy local trên một máy.</p>
+    <p>Dữ liệu chạy theo hai luồng song song: luồng video (frame BGR từ OpenCV) và luồng keypoints (mảng số thực trích xuất từ MediaPipe). Model chỉ nhìn thấy keypoints, không nhìn thấy pixel — điều này giúp model nhỏ, nhanh, và chạy tốt trên laptop không có GPU.</p>
+
+    <h2>B. Chi tiết các module</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Module</th>
+                <th>Vai trò</th>
+                <th>Công nghệ</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>capture.py</strong></td>
+                <td>Đọc frame từ webcam</td>
+                <td>OpenCV VideoCapture</td>
+            </tr>
+            <tr>
+                <td><strong>preprocess.py</strong></td>
+                <td>Resize, flip, BGR→RGB</td>
+                <td>OpenCV, NumPy</td>
+            </tr>
+            <tr>
+                <td><strong>mediapipe_detector.py</strong></td>
+                <td>Phát hiện tay/người, trả về landmarks</td>
+                <td>MediaPipe Holistic</td>
+            </tr>
+            <tr>
+                <td><strong>keypoint_extractor.py</strong></td>
+                <td>Flatten 126 features/frame</td>
+                <td>NumPy</td>
+            </tr>
+            <tr>
+                <td><strong>data_collector.py</strong></td>
+                <td>Ghi sequence .npy cho training</td>
+                <td>NumPy, os</td>
+            </tr>
+            <tr>
+                <td><strong>dataset_builder.py</strong></td>
+                <td>Ghép sequences thành X, y</td>
+                <td>NumPy, sklearn</td>
+            </tr>
+            <tr>
+                <td><strong>model.py</strong></td>
+                <td>Định nghĩa kiến trúc LSTM/GRU</td>
+                <td>TensorFlow/Keras</td>
+            </tr>
+            <tr>
+                <td><strong>trainer.py</strong></td>
+                <td>Train, evaluate, lưu .h5</td>
+                <td>Keras, matplotlib</td>
+            </tr>
+            <tr>
+                <td><strong>sequence_buffer.py</strong></td>
+                <td>Rolling window 30 frames</td>
+                <td>collections.deque</td>
+            </tr>
+            <tr>
+                <td><strong>smoother.py</strong></td>
+                <td>Majority vote trên 10 predictions</td>
+                <td>collections.deque</td>
+            </tr>
+            <tr>
+                <td><strong>inferencer.py</strong></td>
+                <td>Load model, chạy inference realtime</td>
+                <td>Keras, NumPy</td>
+            </tr>
+            <tr>
+                <td><strong>ui.py</strong></td>
+                <td>Overlay kết quả lên frame OpenCV</td>
+                <td>OpenCV</td>
+            </tr>
+            <tr>
+                <td><strong>main.py</strong></td>
+                <td>Entry point, kết nối tất cả modules</td>
+                <td>Python</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>C. Thiết kế dữ liệu</h2>
+    <h3>Dataset structure (lưu trong dataset/):</h3>
+<pre>
+dataset/
+├── raw/
+│   ├── Hello/
+│   │   ├── 0.npy      # sequence 0: shape (30, 126)
+│   │   ├── 1.npy
+│   │   └── ...        # 30 sequences/gesture
+│   ├── Thanks/
+│   ├── Yes/
+│   ├── No/
+│   └── ILoveYou/
+└── labels.json        # {"Hello": 0, "Thanks": 1, ...}
+</pre>
+    <p>Mỗi file <code>.npy</code> = 1 sequence = 30 frames × 126 features. Shape: <code>(30, 126)</code>.</p>
+    
+    <h3>126 features từ đâu?</h3>
+    <ul>
+        <li>Left hand: 21 landmarks × 3 (x, y, z) = 63</li>
+        <li>Right hand: 21 landmarks × 3 = 63</li>
+        <li><strong>Tổng: 126</strong> — đủ để phân biệt gesture tay, không quá lớn để train chậm.</li>
+    </ul>
+    <p><em>Nếu muốn nhận diện gesture toàn thân (như "Hello" vẫy tay kết hợp cơ thể), có thể thêm pose: 33 × 4 = 132, tổng = 258 features.</em></p>
+
+    <h3>Prediction log (tùy chọn, lưu logs/predictions.csv):</h3>
+<pre>
+timestamp, predicted_label, confidence, raw_probs
+2024-01-01 10:00:00, Hello, 0.92, "[0.92, 0.03, 0.02, 0.02, 0.01]"
+</pre>
+
+    <h2>D. AI Pipeline chi tiết</h2>
+    
+    <h3>Input → Keypoint</h3>
+<pre><code># mediapipe_detector.py
+import mediapipe as mp
+import numpy as np
+
+mp_holistic = mp.solutions.holistic
+
+def extract_keypoints(results):
+    lh = np.array([[lm.x, lm.y, lm.z] for lm in
+                   results.left_hand_landmarks.landmark]).flatten() \
+         if results.left_hand_landmarks else np.zeros(63)
+    rh = np.array([[lm.x, lm.y, lm.z] for lm in
+                   results.right_hand_landmarks.landmark]).flatten() \
+         if results.right_hand_landmarks else np.zeros(63)
+    return np.concatenate([lh, rh])  # shape: (126,)
+</code></pre>
+
+    <h3>Sequence buffer</h3>
+<pre><code># sequence_buffer.py
+from collections import deque
+import numpy as np
+
+class SequenceBuffer:
+    def __init__(self, length=30):
+        self.buffer = deque(maxlen=length)
+        self.length = length
+
+    def add(self, keypoints):          # keypoints shape: (126,)
+        self.buffer.append(keypoints)
+
+    def ready(self):
+        return len(self.buffer) == self.length
+
+    def get(self):
+        return np.array(self.buffer)   # shape: (30, 126)
+</code></pre>
+
+    <h3>Model inference + smoothing</h3>
+<pre><code># inferencer.py
+import tensorflow as tf
+import numpy as np
+from collections import deque, Counter
+
+model = tf.keras.models.load_model('models/sign_lstm.h5')
+smoother = deque(maxlen=10)
+labels = {0: "Hello", 1: "Thanks", 2: "Yes", 3: "No", 4: "ILoveYou"} # Load từ JSON
+
+def predict(sequence):
+    # sequence shape: (30, 126) → add batch dim → (1, 30, 126)
+    probs = model.predict(sequence[np.newaxis], verbose=0)[0]
+    confidence = np.max(probs)
+    label_idx = np.argmax(probs)
+
+    if confidence > 0.7:
+        smoother.append(label_idx)
+    
+    # Majority vote trên 10 predictions gần nhất
+    if len(smoother) == 10:
+        final = Counter(smoother).most_common(1)[0][0]
+        return labels[final], confidence
+    return None, 0.0
+</code></pre>
+
+    <h2>E. Model Architecture</h2>
+    
+    <h3>So sánh các mô hình</h3>
+    <div class="grid-container">
+        <div class="card">
+            <h4>LSTM (Khuyên dùng)</h4>
+            <ul>
+                <li>Dễ train, Realtime OK, Ổn định.</li>
+                <li>Xử lý chuỗi thời gian tốt, nhiều tutorial, Keras fit trong ~5 phút.</li>
+                <li>Lý tưởng cho deadline 3 tuần.</li>
+                <li><em>Inference ~2ms/frame</em></li>
+            </ul>
+        </div>
+        <div class="card">
+            <h4>GRU</h4>
+            <ul>
+                <li>Nhẹ hơn LSTM, Nhanh hơn.</li>
+                <li>Kém hơn 1-2% accuracy so với LSTM.</li>
+                <li>Ít tham số hơn LSTM ~30%, thường đủ tốt. Upgrade nhỏ nếu LSTM chạy chậm.</li>
+                <li><em>Inference ~1.5ms/frame</em></li>
+            </ul>
+        </div>
+        <div class="card">
+            <h4>CNN-LSTM</h4>
+            <ul>
+                <li>Accuracy cao.</li>
+                <li>Phức tạp hơn, Train lâu hơn.</li>
+                <li>CNN extract spatial feature từ keypoints, LSTM xử lý temporal. Tốt nhưng over-engineering cho 3 tuần.</li>
+                <li><em>Inference ~5ms/frame</em></li>
+            </ul>
+        </div>
+        <div class="card">
+            <h4>Transformer</h4>
+            <ul>
+                <li>SOTA accuracy.</li>
+                <li>Train cần GPU, Debug khó.</li>
+                <li>Mạnh nhất nhưng cần nhiều data, nhiều RAM, và hiểu biết sâu. Để tuần 3 nếu có thời gian.</li>
+                <li><em>Inference ~8ms/frame</em></li>
+            </ul>
+        </div>
+        <div class="card">
+            <h4>MLP + RF</h4>
+            <ul>
+                <li>Train cực nhanh.</li>
+                <li>Không có temporal, Accuracy thấp.</li>
+                <li>Bỏ qua thông tin chuỗi thời gian. Dùng để baseline so sánh, không dùng production.</li>
+                <li><em>Inference ~0.1ms/frame</em></li>
+            </ul>
+        </div>
     </div>
 
-    <h2>B. Danh sách Dịch vụ</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Dịch vụ</th>
-                <th>Nhiệm vụ</th>
-                <th>Công nghệ</th>
-               
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>Giao diện người dùng (Frontend)</td>
-                <td>Luồng camera, hiển thị văn bản, phát âm thanh</td>
-                <td>React + Vite, API WebSocket, API Web Speech</td>
-                
-            </tr>
-            <tr>
-                <td>API phụ trợ (Backend)</td>
-                <td>Auth, lịch sử, điều phối, TTS</td>
-                <td>FastAPI (Python) hoặc Node.js/Express</td>
-                
-            </tr>
-            <tr>
-                <td>Dịch vụ AI (AI Service)</td>
-                <td>Đường ống xử lý AI</td>
-                <td>Python, MediaPipe, TensorFlow/Keras, OpenCV</td>
-               
-            </tr>
-            <tr>
-                <td>Cơ sở dữ liệu (Database)</td>
-                <td>Lưu từ vựng, lịch sử</td>
-                <td>PostgreSQL 15</td>
-                
-            </tr>
-            <tr>
-                <td>Redis</td>
-                <td>Hàng đợi khung hình, xuất bản/đăng ký thời gian thực</td>
-                <td>Redis 7</td>
-                
-            </tr>
-            <tr>
-                <td>Nginx</td>
-                <td>Máy chủ proxy ngược, nâng cấp WebSocket, SSL</td>
-                <td>Nginx Alpine</td>
-                
-            </tr>
-        </tbody>
-    </table>
+    <h3>Kiến trúc LSTM khuyến nghị</h3>
+<pre><code># model.py
+import tensorflow as tf
 
-    <h2>C. Cơ sở dữ liệu thiết kế</h2>
-    <pre><code class="language-sql">-- Bảng từ vựng ký hiệu
-CREATE TABLE vocabulary (
-  id         SERIAL PRIMARY KEY,
-  sign_label VARCHAR(100) NOT NULL UNIQUE,  -- "hello", "thank_you"...
-  description TEXT,
-  video_demo_url VARCHAR(255),
-  language   VARCHAR(10) DEFAULT 'vn',
-  created_at TIMESTAMP DEFAULT NOW()
-);
+def build_model(num_classes=5, seq_len=30, features=126):
+    model = tf.keras.Sequential([
+        tf.keras.layers.LSTM(64, return_sequences=True,
+                             input_shape=(seq_len, features)),
+        tf.keras.layers.Dropout(0.2),
+        tf.keras.layers.LSTM(128, return_sequences=True),
+        tf.keras.layers.Dropout(0.2),
+        tf.keras.layers.LSTM(64),
+        tf.keras.layers.Dense(64, activation='relu'),
+        tf.keras.layers.Dense(num_classes, activation='softmax')
+    ])
+    model.compile(optimizer='adam',
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy'])
+    return model
 
--- Bảng lịch sử dịch
-CREATE TABLE translation_history (
-  id           SERIAL PRIMARY KEY,
-  session_id   UUID NOT NULL,
-  sign_label   VARCHAR(100) REFERENCES vocabulary(sign_label),
-  confidence   FLOAT,           -- 0.0 – 1.0
-  raw_text     TEXT,
-  tts_audio_url VARCHAR(255),   -- optional, cache audio
-  translated_at TIMESTAMP DEFAULT NOW()
-);</code></pre>
+# Tổng params: ~130k — rất nhẹ, train ~5 phút trên CPU
+</code></pre>
 
-    <h2>D. Pipeline AI — Chi tiết</h2>
-    <p>Tại đây bạn có thể tìm thấy MediaPipe + LSTM và 3D-CNN:</p>
-    <ul>
-        <li><strong>MediaPipe</strong> (của Google, đã được huấn luyện trước) có thể xử lý đồng thời 21 điểm đặc trưng và 33 điểm đặc trưng tư thế (~5ms/khung hình) — bộ trích xuất đặc trưng hiện đã có sẵn.</li>
-        <li><strong>LSTM</strong> nhẹ nhàng (~500KB), huấn luyện nhanh với tập dữ liệu nhỏ (~1000 mẫu/lớp), phù hợp thời gian 3 tuần.</li>
-        <li>Tổng thời gian suy luận: ~30–50ms/khung hình trên CPU, trong thời gian thực.</li>
-    </ul>
+    <h2>F. Cấu trúc thư mục</h2>
+<pre>
+sign_language_ai/
+│
+├── dataset/
+│   ├── raw/                    # .npy sequences theo gesture
+│   │   ├── Hello/              # 30 files × (30,126)
+│   │   ├── Thanks/
+│   │   ├── Yes/
+│   │   ├── No/
+│   │   └── ILoveYou/
+│   └── labels.json
+│
+├── training/
+│   ├── collect_data.py         # Thu thập data từ webcam
+│   ├── build_dataset.py        # Tạo X.npy, y.npy
+│   ├── train.py                # Train model
+│   └── evaluate.py             # Confusion matrix, accuracy
+│
+├── models/
+│   ├── sign_lstm.h5            # Model đã train
+│   └── training_history.json   # Loss/accuracy curves
+│
+├── core/
+│   ├── mediapipe_detector.py   # MediaPipe wrapper
+│   ├── keypoint_extractor.py   # Extract 126 features
+│   ├── sequence_buffer.py      # Rolling window deque
+│   ├── model.py                # Model architecture
+│   ├── inferencer.py           # Inference + smoothing
+│   └── ui.py                   # OpenCV overlay
+│
+├── logs/
+│   └── predictions.csv         # Prediction history
+│
+├── main.py                     # Entry point realtime
+├── requirements.txt
+└── README.md
+</pre>
 
-    <pre><code>Frame JPEG (640×480) 
- ↓ OpenCV resize → 640×480 normalize 
- ↓ MediaPipe Holistic → 21 hand + 33 pose landmarks = 63 keypoints × 3 (x,y,z) = 189 float/frame 
- ↓ Buffer 30 frames liên tiếp → tensor shape [30, 189] 
- ↓ LSTM(128) → LSTM(64) → Dense(num_classes) → Softmax 
- ↓ Sliding window (5 frame majority vote) + threshold ≥ 0.85 
- ↓ Output: {"label": "xin_chào", "confidence": 0.93}</code></pre>
-    <p><strong>Hậu xử lý (Làm mịn):</strong> Dùng cửa sổ trượt 5 khung — chỉ công nhận kết quả khi ≥3/5 khung liên tiếp đồng ý cùng 1 nhãn, tránh giật/nhiễu.</p>
-
-    <h2>E. Luồng dữ liệu thời gian thực (WebSocket)</h2>
-    <ol>
-        <li><strong>Frontend:</strong> getUserMedia() → canvas.captureStream(15fps)</li>
-        <li><strong>Frontend:</strong> encode frame → base64 JPEG → send qua WebSocket</li>
-        <li><strong>Backend:</strong> nhận frame → push vào Redis List (<code>LPUSH frame_queue</code>)</li>
-        <li><strong>AI Service:</strong> <code>BLPOP frame_queue</code> → xử lý pipeline → publish kết quả Redis channel</li>
-        <li><strong>Backend:</strong> subscribe Redis channel → nhận kết quả → gửi về Frontend qua WebSocket</li>
-        <li><strong>Frontend:</strong> nhận JSON <code>{label, confidence}</code> → hiển thị text + gọi TTS</li>
-    </ol>
-
-    
-
-    <h2>G. Phân công 3 người (3 tuần)</h2>
-    
-    <h3>Người 1 — AI Engineer (Trọng tâm)</h3>
-    <p><em>Xây dựng toàn bộ đường dẫn AI</em></p>
-    <table>
-        <thead>
-            <tr><th>Tuần</th><th>Nhiệm vụ</th><th>Đầu ra</th></tr>
-        </thead>
-        <tbody>
-            <tr><td>1</td><td>Bộ dữ liệu (300–500 mẫu/5 lớp VN), thiết lập MediaPipe, bao gồm các điểm chính.</td><td>Tập lệnh thu thập + keypoint CSV</td></tr>
-            <tr><td>2</td><td>Đào tạo mô hình LSTM, đánh giá độ chính xác, xuất mô hình .h5/.tflite</td><td>Đánh giá tập tin mô hình + sổ tay</td></tr>
-            <tr><td>3</td><td>Đóng gói AI Service (FastAPI/Flask), connect Redis, real-time inference test</td><td>Docker container ai-service hoạt động</td></tr>
-        </tbody>
-    </table>
-
-    <h3>Người 2 — Kỹ sư phụ trợ (Backend)</h3>
-    <p><em>API, cơ sở dữ liệu, kiểu TTS</em></p>
-    <table>
-        <thead>
-            <tr><th>Tuần</th><th>Nhiệm vụ</th><th>Đầu ra</th></tr>
-        </thead>
-        <tbody>
-            <tr><td>1</td><td>Thiết lập FastAPI/Node.js, lược đồ PostgreSQL, từ vựng API CRUD + lịch sử</td><td>API endpoints active + Swagger</td></tr>
-            <tr><td>2</td><td>Máy chủ WebSocket, Redis pub/sub giao tiếp với AI Service.</td><td>Nguồn chuyển tiếp WebSocket</td></tr>
-            <tr><td>3</td><td>Tích hợp gTTS/Edge-TTS, Nginx config, Docker Compose, test end-to-end</td><td>docker-compose up chạy thành công</td></tr>
-        </tbody>
-    </table>
-
-    <h3>Người 3 — Kỹ sư Frontend</h3>
-    <p><em>Giao diện người dùng/UX, camera streaming</em></p>
-    <table>
-        <thead>
-            <tr><th>Tuần</th><th>Nhiệm vụ</th><th>Đầu ra</th></tr>
-        </thead>
-        <tbody>
-            <tr><td>1</td><td>Thiết lập React + Vite, thành phần Camera (getUserMedia), bố cục giao diện</td><td>Trang web có camera trực tiếp</td></tr>
-            <tr><td>2</td><td>Kết nối WebSocket, xử lý văn bản thời gian thực và API Web Speech (TTS).</td><td>Hiển thị văn bản + âm thanh khi nhận dữ liệu</td></tr>
-            <tr><td>3</td><td>Trang lịch sử dịch (gọi REST API), đánh bóng UX, đáp ứng, video demo</td><td>Hoàn thiện ứng dụng + ghi demo</td></tr>
-        </tbody>
-    </table>
+    <h2>G. Phân công nhóm 3 người</h2>
+    <div class="grid-container">
+        <div class="card">
+            <h4>P1: Người 1 (Data & MediaPipe Engineer)</h4>
+            <ul>
+                <li>Setup webcam capture với OpenCV.</li>
+                <li>Tích hợp MediaPipe Holistic, debug landmark.</li>
+                <li>Viết keypoint extractor, test shape (126,).</li>
+                <li>Script thu thập data, ghi .npy sequences.</li>
+                <li>Visualize keypoints để kiểm tra chất lượng.</li>
+            </ul>
+            <p><strong>Output:</strong> dataset/ + core/mediapipe_detector.py</p>
+        </div>
+        <div class="card">
+            <h4>P2: Người 2 (AI Model Engineer)</h4>
+            <ul>
+                <li>Build dataset X.npy, y.npy từ raw data.</li>
+                <li>Train LSTM baseline, log accuracy/loss.</li>
+                <li>Thử nghiệm GRU, MLP, so sánh kết quả.</li>
+                <li>Vẽ confusion matrix, phân tích lỗi.</li>
+                <li>Xuất model .h5 tốt nhất để inference.</li>
+            </ul>
+            <p><strong>Output:</strong> models/sign_lstm.h5 + training/</p>
+        </div>
+        <div class="card">
+            <h4>P3: Người 3 (Inference & UI Engineer)</h4>
+            <ul>
+                <li>Viết sequence buffer (rolling window 30 frames).</li>
+                <li>Load model, pipeline inference realtime.</li>
+                <li>Prediction smoothing: majority vote + threshold.</li>
+                <li>OpenCV overlay: text, confidence bar, FPS.</li>
+                <li>Kết nối main.py, test end-to-end demo.</li>
+            </ul>
+            <p><strong>Output:</strong> core/inferencer.py + main.py</p>
+        </div>
+    </div>
+    <div class="note">
+        <strong>Lưu ý:</strong> Cả 3 cùng review code nhau, cùng hiểu toàn bộ pipeline trước khi demo.
+    </div>
 
     <h2>H. Lịch trình 3 tuần</h2>
+    
+    <h3>Tuần 1: Dữ liệu & Nền tảng</h3>
     <ul>
-        <li><strong>Tuần 1 — Nền tảng:</strong>
-            <ul>
-                <li>[AI] Thu thập dữ liệu + thiết lập đường dẫn MediaPipe</li>
-                <li>[BE] Thiết lập dự án, lược đồ cơ sở dữ liệu, API REST cơ bản</li>
-                <li>[FE] Thiết lập React, thành phần camera, đoạn mã giả lập máy khách WebSocket</li>
-                <li><em>Cuối tuần:</em> Chốt hợp đồng API đồng bộ hóa nhóm (định dạng JSON)</li>
-            </ul>
-        </li>
-        <li><strong>Tuần 2 — Tích hợp cốt lõi:</strong>
-            <ul>
-                <li>[AI] Mô hình đào tạo, xuất file, bắt đầu Dịch vụ AI</li>
-                <li>[BE] Máy chủ WebSocket, Redis pub/sub, relay kết quả</li>
-                <li>[FE] Nhận dữ liệu WebSocket, hiển thị văn bản + âm thanh</li>
-                <li><em>Cuối tuần:</em> Demo luồng dữ liệu end-to-end (dù chưa đẹp)</li>
-            </ul>
-        </li>
-        <li><strong>Tuần 3 — Đánh bóng & Triển khai:</strong>
-            <ul>
-                <li>[AI] Tinh chỉnh mô hình, tối ưu hóa suy luận, viết README AI</li>
-                <li>[BE] Hoàn thiện TTS, Nginx, Docker Compose, API</li>
-                <li>[FE] Trang lịch sử, UI/UX hoàn thiện, video demo</li>
-                <li><em>Cuối tuần:</em> Triển khai localhost, quay demo, viết báo cáo</li>
-            </ul>
-        </li>
+        <li>Setup môi trường, cài thư viện, test webcam.</li>
+        <li>Tích hợp MediaPipe, visualize landmarks realtime.</li>
+        <li>Viết extractor, test shape (30, 126).</li>
+        <li>Thu thập 30 sequences × 5 gesture.</li>
+        <li>Script <code>collect_data.py</code> có UI hướng dẫn.</li>
+        <li><strong>Milestone:</strong> <code>dataset/</code> đầy đủ, pipeline MediaPipe chạy stable.</li>
     </ul>
 
-    <h2>I. Điểm cộng báo cáo</h2>
+    <h3>Tuần 2: Training & Inference</h3>
     <ul>
-        <li><strong>Tăng cường dữ liệu cho keypoint (Data Augmentation):</strong>
-            <ul>
-                <li>Xoay ngẫu nhiên ±15° trên các điểm chính.</li>
-                <li>Biến dạng thời gian (kéo giãn/nén 30 khung hình).</li>
-                <li>Mirror flip (đối xứng tay trái/phải) → Tăng tập dữ liệu 5–10× chỉ bằng numpy.</li>
-            </ul>
-        </li>
-        <li><strong>Tối ưu tốc độ suy luận:</strong>
-            <ul>
-                <li>Chuyển mô hình sang TensorFlow Lite → giảm từ ~80ms xuống ~20ms/frame.</li>
-                <li>Hoặc dùng ONNX Runtime xuất từ ​​Keras.</li>
-                <li><em>Báo cáo benchmark:</em> FPS trước/sau → số liệu cụ thể rất thuyết phục.</li>
-            </ul>
-        </li>
-        <li><strong>Bonus nhỏ nhưng hay:</strong>
-            <ul>
-                <li>Thanh tin cậy (Confidence bar) hiển thị thời gian thực trên UI.</li>
-                <li>Cửa sổ trượt đa lớp (hiển thị top 3 dự đoán).</li>
-                <li>Log độ trễ của WebSocket → chứng minh thời gian thực < 100ms.</li>
-            </ul>
-        </li>
-        <li><strong>Gợi ý tập dữ liệu để bắt đầu nhanh:</strong>
-            Sử dụng WLASL hoặc tự quay 5–10 ký hiệu tiếng Việt cơ bản (xin chào, cảm ơn, có, không, tạm biệt). Với MediaPipe + LSTM, 200 mẫu/lớp có thể đạt độ chính xác >85%.
-        </li>
+        <li>Build X.npy, y.npy, split train/val 80/20.</li>
+        <li>Train LSTM, đạt val_acc > 90%.</li>
+        <li>Thử GRU, so sánh với LSTM.</li>
+        <li>Viết inferencer, load .h5, test offline.</li>
+        <li>Sequence buffer + smoothing cơ bản.</li>
+        <li>UI overlay text lên webcam frame.</li>
+        <li><strong>Milestone:</strong> <code>model.h5</code> > 90% accuracy, inference chạy > 15fps.</li>
     </ul>
+
+    <h3>Tuần 3: Polish & Demo</h3>
+    <ul>
+        <li>Fine-tune smoothing threshold, giảm false positive.</li>
+        <li>Thu thêm data nếu gesture nào nhận diện < 85%.</li>
+        <li>Làm đẹp UI: confidence bar, sentence history.</li>
+        <li>Demo end-to-end, test thực tế với nhiều người dùng.</li>
+        <li>Viết README, document code.</li>
+        <li>Chuẩn bị slide demo, video record.</li>
+        <li><strong>Milestone:</strong> Demo ổn định, FPS > 20, 5 gestures nhận diện đúng > 90%.</li>
+    </ul>
+
+    <h2>I. Realtime optimization — những điều quan trọng</h2>
+    <ul>
+        <li><strong>FPS target:</strong> 20fps trở lên trên laptop i5 không GPU.</li>
+        <li><strong>Không resize lớn:</strong> dùng 640×480 là đủ, MediaPipe không cần 1080p.</li>
+        <li><strong>Skip MediaPipe detection khi không cần:</strong> nếu frame trước không có tay, vẫn inference nhưng ghi zeros.</li>
+        <li><strong>Chạy model mỗi frame, không cần throttle:</strong> LSTM 130k params inference ~2ms, không đáng throttle.</li>
+        <li><strong>Dùng <code>deque(maxlen=30)</code>:</strong> thay list để tránh re-allocate memory mỗi frame.</li>
+        <li><strong>Tắt verbose inference:</strong> <code>model.predict(x, verbose=0)</code> tránh print log làm chậm terminal.</li>
+        <li><strong>Profile:</strong> bằng <code>time.perf_counter()</code> để biết bottleneck ở đâu trước khi optimize.</li>
+    </ul>
+
+    <h2>J. Hướng nâng cấp sau 3 tuần</h2>
+    <p>Sau khi demo xong, nếu muốn đưa vào CV project hoặc tiếp tục nghiên cứu:</p>
+    <ul>
+        <li><strong>Data:</strong> thu thêm data (100 sequences/gesture thay vì 30), thêm người thu để mô hình generalize tốt hơn.</li>
+        <li><strong>Model:</strong> thử Transformer nhỏ (2-4 heads, 2 layers) — có thể beat LSTM 2-3% accuracy nếu có đủ data.</li>
+        <li><strong>Gesture mới:</strong> pipeline đã thiết kế để dễ mở rộng — chỉ cần chạy <code>collect_data.py</code> với label mới, retrain là xong.</li>
+        <li><strong>Vietnamese Sign Language (VSL):</strong> dataset VSL chưa nhiều, nhưng pipeline này hoàn toàn apply được — chỉ cần thu data theo bộ từ VSL.</li>
+        <li><strong>Mobile deployment:</strong> convert .h5 sang TFLite, chạy trên Android/iOS với MediaPipe Mobile SDK. Inference time &lt; 5ms trên điện thoại tầm trung.</li>
+        <li><strong>Edge AI:</strong> chạy trên Raspberry Pi 4 + camera module, demo embedded AI — rất ấn tượng với nhà tuyển dụng.</li>
+    </ul>
+    
+    <div class="note">
+        <strong>Tóm lại cho nhóm:</strong> Tuần 1 tập trung vào data sạch và MediaPipe stable. Tuần 2 LSTM 90%+ là milestone bắt buộc. Tuần 3 làm đẹp và demo. Đừng tốn thời gian Transformer hay CNN-LSTM nếu LSTM chưa đạt 90% — tăng data trước, đổi model sau.
+    </div>
 
 </div>
 
