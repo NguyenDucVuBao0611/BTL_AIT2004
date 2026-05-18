@@ -1,0 +1,529 @@
+# 📋 PHÂN CÔNG CHI TIẾT — PROJECT AI NHẬN DIỆN NGÔN NGỮ KÝ HIỆU REALTIME
+
+> **Thời gian:** 3 tuần | **Nhóm:** 3 người | **Stack:** Python · OpenCV · MediaPipe Holistic · TensorFlow/Keras
+
+---
+
+## 👥 VAI TRÒ CHÍNH
+
+| Thành viên | Vai trò | Trách nhiệm cốt lõi |
+|---|---|---|
+| **Người 1** | Data & MediaPipe Engineer | Thu thập dữ liệu, xử lý landmark, pipeline keypoint |
+| **Người 2** | AI Model Engineer | Thiết kế, train, đánh giá model LSTM/GRU |
+| **Người 3** | Inference & UI Engineer | Inference realtime, UI overlay, demo |
+
+---
+
+---
+
+# ⏱️ TUẦN 1 — DATASET & NỀN TẢNG
+
+> **Mục tiêu:** Hệ thống MediaPipe chạy ổn định, thu được dataset gesture chuẩn shape `(30, 126)`.
+
+---
+
+## 👤 NGƯỜI 1 — Data & MediaPipe Engineer
+
+### 🗓️ Thứ tự thực hiện
+
+#### Ngày 1-2: Setup môi trường
+1. Tạo virtual environment Python 3.9+:
+   ```bash
+   python -m venv venv
+   venv\Scripts\activate   # Windows
+   ```
+2. Cài đặt thư viện theo thứ tự (tránh conflict):
+   ```bash
+   pip install numpy opencv-python mediapipe tensorflow matplotlib
+   pip freeze > requirements.txt
+   ```
+3. Kiểm tra webcam hoạt động:
+   ```python
+   import cv2
+   cap = cv2.VideoCapture(0)
+   # Phải hiện khung hình, không lỗi
+   ```
+
+#### Ngày 2-3: Tích hợp MediaPipe Holistic
+4. Viết file `core/mediapipe_detector.py`:
+   - Khởi tạo `mp.solutions.holistic.Holistic()`
+   - Hàm `detect(frame)` → trả về `results`
+   - Hàm `draw_landmarks(frame, results)` → vẽ:
+     - Pose (33 điểm)
+     - Left Hand (21 điểm)
+     - Right Hand (21 điểm)
+5. Test chạy realtime, kiểm tra landmark hiển thị đúng vị trí.
+
+#### Ngày 3-4: Hàm extract keypoint
+6. Viết hàm `extract_keypoints(results)`:
+   - Pose: 33 điểm × 4 giá trị (x, y, z, visibility) = **132 giá trị** (hoặc chỉ lấy 33×3=99)
+   - Left Hand: 21 điểm × 3 = **63 giá trị**
+   - Right Hand: 21 điểm × 3 = **63 giá trị**
+   - → Flatten thành vector `(126,)` *(cần thống nhất với Người 2 về shape cụ thể)*
+   - Nếu không detect được tay/pose → fill `np.zeros()` thay vì lỗi.
+7. Test in ra shape: `assert keypoints.shape == (126,)`.
+
+#### Ngày 4-5: Script thu thập dữ liệu
+8. Viết `collect_data.py`:
+   - Định nghĩa danh sách gesture: `ACTIONS = ['hello', 'thanks', 'yes', 'no', ...]`
+   - Thu thập **30 sequences × 30 frames** mỗi gesture.
+   - Lưu mỗi frame là 1 file `.npy`:
+     ```
+     dataset/hello/0/0.npy  (gesture=hello, sequence=0, frame=0)
+     dataset/hello/0/1.npy
+     ...
+     ```
+   - Hiển thị countdown + tên gesture trước khi thu.
+9. Visualize landmark để kiểm tra chất lượng: vẽ lại trên ảnh trắng, không cần webcam.
+
+### ✅ Checklist hoàn thành Tuần 1
+- [ ] `requirements.txt` đầy đủ
+- [ ] `core/mediapipe_detector.py` chạy không lỗi
+- [ ] `extract_keypoints()` trả về shape đúng `(126,)`
+- [ ] `collect_data.py` thu thập xong ≥ 5 gesture
+- [ ] Thư mục `dataset/` có đủ file `.npy`
+
+### 📦 Output cần bàn giao
+```
+project/
+├── requirements.txt
+├── dataset/          ← dữ liệu .npy đầy đủ
+├── core/
+│   └── mediapipe_detector.py
+└── collect_data.py
+```
+
+---
+
+## 👤 NGƯỜI 2 — AI Model Engineer
+
+### 🗓️ Thứ tự thực hiện
+
+#### Ngày 1-2: Nghiên cứu & chuẩn bị
+1. Đọc tài liệu MediaPipe Holistic để hiểu keypoint structure.
+2. Thỏa thuận với **Người 1** về:
+   - Shape vector: `(126,)` hay khác?
+   - Danh sách gesture (ACTIONS list).
+   - Cấu trúc thư mục `dataset/`.
+3. Viết `training/prepare_dataset.py`:
+   - Đọc toàn bộ file `.npy` từ `dataset/`
+   - Build:
+     - `X.npy` shape `(total_sequences, 30, 126)` — sequences
+     - `y.npy` shape `(total_sequences,)` — labels dạng integer
+   - Chia `train/validation` (80/20).
+   - In ra thống kê: số lượng sample mỗi class.
+
+#### Ngày 3-5: Chuẩn bị notebook train
+4. Tạo `training/train.ipynb` (hoặc `train.py`):
+   - Load `X.npy`, `y.npy`
+   - Normalize nếu cần
+   - One-hot encode nhãn
+   - Placeholder model LSTM (chờ Tuần 2 để train thật)
+5. Kiểm tra pipeline không lỗi với fake data:
+   ```python
+   X_fake = np.random.rand(10, 30, 126)
+   y_fake = np.random.randint(0, 5, 10)
+   ```
+
+### ✅ Checklist hoàn thành Tuần 1
+- [ ] Đã đồng thuận shape keypoint với Người 1
+- [ ] `training/prepare_dataset.py` chạy không lỗi
+- [ ] `X.npy`, `y.npy` được build thành công
+- [ ] Notebook train đã có khung cơ bản
+
+### 📦 Output cần bàn giao
+```
+training/
+└── prepare_dataset.py
+```
+
+---
+
+## 👤 NGƯỜI 3 — Inference & UI Engineer
+
+### 🗓️ Thứ tự thực hiện
+
+#### Ngày 1-2: Nghiên cứu pipeline inference
+1. Tìm hiểu khái niệm rolling window 30 frames.
+2. Thỏa thuận với **Người 1** về shape keypoint `(126,)`.
+
+#### Ngày 2-4: Module buffer
+3. Viết `core/buffer.py`:
+   - Class `SequenceBuffer(maxlen=30)`:
+     - `append(keypoint)` — thêm frame mới
+     - `is_ready()` — trả về `True` nếu đủ 30 frames
+     - `get_sequence()` — trả về `np.array` shape `(30, 126)`
+     - Dùng `collections.deque(maxlen=30)` nội bộ.
+
+#### Ngày 4-5: Test FPS & thiết kế UI
+4. Viết `core/ui.py` hoặc trực tiếp trong main:
+   - Hàm `draw_overlay(frame, text, confidence, fps)`:
+     - Vẽ text gesture lên góc trên trái
+     - Vẽ confidence dạng số hoặc thanh ngang
+     - Vẽ FPS góc trên phải
+5. Test FPS webcam không dùng model (chỉ MediaPipe):
+   - Phải đạt ≥ 20 FPS.
+   - Nếu < 20: giảm `model_complexity` của MediaPipe.
+
+### ✅ Checklist hoàn thành Tuần 1
+- [ ] `core/buffer.py` có class `SequenceBuffer` hoàn chỉnh
+- [ ] Unit test buffer: append 30 frames → `is_ready()` = True
+- [ ] UI overlay hiển thị đúng (dùng placeholder text)
+- [ ] FPS ≥ 20 với MediaPipe chạy
+
+### 📦 Output cần bàn giao
+```
+core/
+└── buffer.py
+```
+
+---
+
+## 🚩 MILESTONE TUẦN 1
+
+| Tiêu chí | Người chịu trách nhiệm | Pass khi |
+|---|---|---|
+| MediaPipe chạy realtime | Người 1 | Landmark hiển thị, không crash |
+| `extract_keypoints()` đúng shape | Người 1 | `assert shape == (126,)` |
+| Dataset thu thập xong | Người 1 | ≥ 5 gesture × 30 seq × 30 frames |
+| Pipeline train chuẩn bị | Người 2 | `prepare_dataset.py` chạy OK |
+| Buffer module hoạt động | Người 3 | Unit test pass |
+| FPS cơ bản | Người 3 | ≥ 20 FPS |
+
+---
+
+---
+
+# ⏱️ TUẦN 2 — TRAINING & INFERENCE
+
+> **Mục tiêu:** Model LSTM train xong accuracy > 90%, inference realtime chạy được.
+
+---
+
+## 👤 NGƯỜI 1 — Data & MediaPipe Engineer
+
+### 🗓️ Thứ tự thực hiện
+
+1. **Kiểm tra dataset Tuần 1:**
+   - Load lại toàn bộ `.npy`, kiểm tra shape từng file.
+   - Đếm số lượng mỗi class, báo cáo balance.
+
+2. **Kiểm tra missing landmark:**
+   - Scan tìm frame bị zero toàn bộ (không detect được).
+   - Quyết định: xóa sequence lỗi hay giữ lại.
+
+3. **Thu thêm dữ liệu nếu thiếu:**
+   - Target: ≥ 50 sequences/gesture (nếu thời gian cho phép).
+   - Ưu tiên các gesture đang nhận diện kém (phản hồi từ Người 2/3).
+
+4. **Augment dữ liệu nhẹ** *(nếu dataset thiếu)*:
+   - Thêm noise Gaussian nhỏ vào keypoint: `keypoint + np.random.normal(0, 0.01, shape)`.
+   - Lưu thêm vào dataset.
+
+5. **Debug theo phản hồi từ Người 2:**
+   - Nếu accuracy thấp ở một gesture → thu lại dữ liệu gesture đó.
+   - Test điều kiện ánh sáng khác nhau.
+
+### ✅ Checklist hoàn thành Tuần 2
+- [ ] Dataset không có sequence lỗi (shape sai / all-zero)
+- [ ] Mỗi gesture có ≥ 30 sequences hợp lệ
+- [ ] Báo cáo data balance cho Người 2
+
+---
+
+## 👤 NGƯỜI 2 — AI Model Engineer
+
+### 🗓️ Thứ tự thực hiện
+
+1. **Build dataset cuối cùng:**
+   - Chạy `prepare_dataset.py` với dataset từ Người 1.
+   - In ra: số sample, phân phối class, shape.
+
+2. **Train LSTM baseline:**
+   ```python
+   model = Sequential([
+       LSTM(64, return_sequences=True, input_shape=(30, 126)),
+       LSTM(128, return_sequences=True),
+       LSTM(64),
+       Dense(64, activation='relu'),
+       Dense(num_classes, activation='softmax')
+   ])
+   ```
+   - Log accuracy và loss mỗi epoch.
+   - Dùng `EarlyStopping(patience=10)`.
+
+3. **Thử GRU, so sánh:**
+   - Thay LSTM bằng GRU, train lại.
+   - Ghi chép: accuracy, inference time, model size.
+
+4. **Đánh giá model:**
+   - Vẽ confusion matrix.
+   - In classification report (precision, recall, F1).
+   - Target: `val_acc > 90%`.
+
+5. **Export model tốt nhất:**
+   - Lưu `models/sign_lstm.h5` (hoặc `sign_gru.h5`).
+   - Viết `training/evaluate.py` để test lại model đã save.
+
+6. **Chuyển giao cho Người 3:**
+   - Cung cấp file `.h5`.
+   - Cung cấp danh sách nhãn `ACTIONS` đúng thứ tự (quan trọng!).
+
+### ✅ Checklist hoàn thành Tuần 2
+- [ ] Train xong ít nhất LSTM và GRU
+- [ ] `val_acc > 90%` với ít nhất một model
+- [ ] `models/sign_lstm.h5` đã export
+- [ ] Confusion matrix đã vẽ
+- [ ] Đã bàn giao `.h5` + ACTIONS list cho Người 3
+
+---
+
+## 👤 NGƯỜI 3 — Inference & UI Engineer
+
+### 🗓️ Thứ tự thực hiện
+
+1. **Nhận model từ Người 2:**
+   - Nhận file `.h5` và danh sách `ACTIONS`.
+   - Load model: `model = tf.keras.models.load_model('models/sign_lstm.h5')`.
+
+2. **Viết `core/inference.py`:**
+   - Hàm `predict(sequence)` nhận input `(30, 126)` → trả về `(class_name, confidence)`.
+   - Áp dụng **threshold**: chỉ output nếu `confidence > 0.7`.
+
+3. **Smoothing prediction:**
+   - **Majority vote**: lưu 5 prediction gần nhất → output class xuất hiện nhiều nhất.
+   - Ngăn flickering (không nhảy liên tục giữa các class).
+
+4. **Tích hợp vào main loop:**
+   - Viết `main.py` kết hợp:
+     - `mediapipe_detector.py` → keypoint
+     - `buffer.py` → sequence
+     - `inference.py` → prediction
+     - `ui.py` → overlay
+
+5. **Test end-to-end:**
+   - Chạy `main.py`, đo FPS thực tế.
+   - Target: `FPS > 15`.
+   - Test offline (không webcam) với 1 sequence cố định.
+
+6. **Test từng gesture:**
+   - Làm từng động tác, ghi lại accuracy cảm nhận.
+   - Báo cáo gesture nào sai nhiều → Người 1 thu lại dữ liệu.
+
+### ✅ Checklist hoàn thành Tuần 2
+- [ ] `core/inference.py` predict đúng trên test data
+- [ ] `main.py` chạy end-to-end không crash
+- [ ] FPS > 15 khi chạy đầy đủ
+- [ ] Confidence threshold hoạt động đúng
+- [ ] Majority vote giảm flickering
+
+---
+
+## 🚩 MILESTONE TUẦN 2
+
+| Tiêu chí | Người chịu trách nhiệm | Pass khi |
+|---|---|---|
+| Dataset sạch, balance | Người 1 | Không có sequence all-zero |
+| Model train xong | Người 2 | `val_acc > 90%` |
+| File `.h5` export xong | Người 2 | Load được, predict không lỗi |
+| Inference realtime | Người 3 | `main.py` chạy full pipeline |
+| FPS realtime | Người 3 | ≥ 15 FPS |
+
+---
+
+---
+
+# ⏱️ TUẦN 3 — POLISH & DEMO
+
+> **Mục tiêu:** Demo realtime ổn định, FPS > 20, có video demo + slide báo cáo.
+
+---
+
+## 👤 NGƯỜI 1 — Data & MediaPipe Engineer
+
+### 🗓️ Thứ tự thực hiện
+
+1. **Thu dữ liệu khó:**
+   - Thử điều kiện: ánh sáng yếu, nền lộn xộn, góc tay khác nhau.
+   - Thu thêm cho các gesture đang nhận diện kém.
+
+2. **Giảm false positive:**
+   - Xem xét tăng `min_detection_confidence` trong MediaPipe.
+   - Lọc bỏ keypoint nhiễu.
+
+3. **Viết tài liệu dataset** `docs/dataset.md`:
+   - Số lượng gesture, số sample mỗi gesture.
+   - Điều kiện thu thập (ánh sáng, khoảng cách camera...).
+   - Cấu trúc thư mục dataset.
+   - Hướng dẫn thu thêm dữ liệu.
+
+4. **Hỗ trợ demo:**
+   - Phụ demo phần giải thích MediaPipe + data pipeline.
+   - Chuẩn bị 1 slide về data/keypoint.
+
+### ✅ Checklist hoàn thành Tuần 3
+- [ ] `docs/dataset.md` hoàn chỉnh
+- [ ] Accuracy các gesture khó đã cải thiện (phản hồi từ Người 3)
+- [ ] Sẵn sàng giải thích phần data trong demo
+
+---
+
+## 👤 NGƯỜI 2 — AI Model Engineer
+
+### 🗓️ Thứ tự thực hiện
+
+1. **Fine-tune model** (nếu accuracy chưa đạt):
+   - Thử thêm Dropout để tránh overfitting.
+   - Thử learning rate schedule.
+   - Retrain với dataset mới từ Người 1.
+
+2. **So sánh toàn diện LSTM vs GRU vs MLP:**
+   | Model | Val Acc | Inference Time | Model Size |
+   |---|---|---|---|
+   | LSTM | ? | ? | ? |
+   | GRU | ? | ? | ? |
+   | MLP | ? | ? | ? |
+
+3. **Chọn và export model tốt nhất:** `models/final_model.h5`.
+
+4. **Chuẩn bị biểu đồ cho báo cáo:**
+   - Accuracy/Loss curve (Matplotlib).
+   - Confusion matrix.
+   - Bảng so sánh model.
+
+5. **Tối ưu inference speed** *(nếu FPS chưa đạt)*:
+   - Convert sang TFLite: `tf.lite.TFLiteConverter.from_keras_model(model)`.
+   - Hoặc reduce model size.
+
+6. **Viết `reports/model_report.md`:**
+   - Mô tả kiến trúc model.
+   - Kết quả train.
+   - Lý do chọn model cuối.
+
+### ✅ Checklist hoàn thành Tuần 3
+- [ ] `models/final_model.h5` export xong
+- [ ] Accuracy/Loss chart đã có
+- [ ] Confusion matrix đã có
+- [ ] Bảng so sánh model đã có
+- [ ] `reports/model_report.md` viết xong
+
+---
+
+## 👤 NGƯỜI 3 — Inference & UI Engineer
+
+### 🗓️ Thứ tự thực hiện
+
+1. **Cập nhật model mới từ Người 2:**
+   - Load `models/final_model.h5`.
+   - Test lại toàn bộ gesture.
+
+2. **Hoàn thiện UI:**
+   - **Confidence bar:** thanh màu thay đổi theo confidence (xanh lá > 80%, vàng > 60%, đỏ < 60%).
+   - **Sentence history:** hiển thị 5 gesture cuối ở dưới màn hình.
+   - **FPS counter:** góc trên phải, màu trắng.
+   - Làm đẹp font, màu sắc overlay.
+
+3. **Fix bug realtime:**
+   - Xử lý trường hợp không detect được tay (không crash).
+   - Xử lý model predict quá chậm làm drop FPS.
+   - Test ổn định 5 phút liên tục.
+
+4. **Test end-to-end cuối cùng:**
+   - Chạy với model final.
+   - Đo FPS: phải đạt > 20.
+   - Đo accuracy cảm nhận: từng gesture phải nhận đúng > 80%.
+
+5. **Quay video demo:**
+   - Quay 2-3 phút demo từng gesture.
+   - Dùng OBS hoặc built-in screen recorder.
+   - Lưu vào `demo/demo_video.mp4`.
+
+6. **Chuẩn bị slide demo** `presentation/slides.pptx`:
+   - Slide 1: Giới thiệu project
+   - Slide 2: Kiến trúc hệ thống (sơ đồ pipeline)
+   - Slide 3: Demo MediaPipe + keypoint (Người 1 trình bày)
+   - Slide 4: Model & kết quả training (Người 2 trình bày)
+   - Slide 5: Demo realtime (Người 3 trình bày)
+   - Slide 6: Kết quả & hướng phát triển
+
+### ✅ Checklist hoàn thành Tuần 3
+- [ ] UI hoàn thiện: confidence bar + sentence history + FPS
+- [ ] FPS > 20 với model final
+- [ ] Chạy ổn định ≥ 5 phút không crash
+- [ ] Video demo đã quay xong
+- [ ] Slide demo đã chuẩn bị
+
+---
+
+## 🚩 MILESTONE TUẦN 3
+
+| Tiêu chí | Người chịu trách nhiệm | Pass khi |
+|---|---|---|
+| Dataset khó đã thu | Người 1 | Gesture khó accuracy tăng |
+| Model final export | Người 2 | `final_model.h5` + charts đầy đủ |
+| UI hoàn thiện | Người 3 | Confidence bar + history |
+| FPS demo | Người 3 | ≥ 20 FPS |
+| Video demo | Người 3 | File MP4 tồn tại |
+| Slide demo | Người 3 | 6 slides đầy đủ |
+
+---
+
+---
+
+# 📐 CẤU TRÚC PROJECT CUỐI
+
+```
+project/
+│
+├── dataset/               ← [Người 1] File .npy theo gesture/sequence/frame
+├── models/
+│   ├── sign_lstm.h5       ← [Người 2] Model baseline
+│   └── final_model.h5     ← [Người 2] Model tốt nhất
+├── training/
+│   ├── prepare_dataset.py ← [Người 2]
+│   ├── train.py           ← [Người 2]
+│   └── evaluate.py        ← [Người 2]
+├── core/
+│   ├── mediapipe_detector.py  ← [Người 1]
+│   ├── buffer.py              ← [Người 3]
+│   └── inference.py           ← [Người 3]
+├── demo/
+│   └── demo_video.mp4     ← [Người 3]
+├── docs/
+│   └── dataset.md         ← [Người 1]
+├── reports/
+│   └── model_report.md    ← [Người 2]
+├── presentation/
+│   └── slides.pptx        ← [Người 3]
+│
+├── collect_data.py        ← [Người 1]
+├── main.py                ← [Người 3]
+├── requirements.txt       ← [Người 1]
+└── README.md              ← [Cả nhóm]
+```
+
+---
+
+# 📊 KPI CUỐI PROJECT
+
+| Tiêu chí | Mục tiêu | Đo bằng cách nào |
+|---|---|---|
+| Số gesture | 5–10 | Đếm folder trong `dataset/` |
+| Validation Accuracy | > 90% | Log train Người 2 |
+| FPS realtime | > 20 | Hiển thị trên UI |
+| Delay predict | < 1s | Đo thủ công khi demo |
+| Model size | < 10MB | Kiểm tra file `.h5` |
+| Demo | Realtime ổn định 5 phút | Test thực tế |
+
+---
+
+# 📌 QUY TẮC LÀM VIỆC NHÓM
+
+| Quy tắc | Chi tiết |
+|---|---|
+| **Commit hàng ngày** | Mỗi người push code lên GitHub mỗi ngày làm việc |
+| **Commit message rõ** | Format: `[W1-P1] Thêm hàm extract_keypoints` |
+| **Review chéo** | Cuối mỗi tuần: review code của người khác, comment trên PR |
+| **Thống nhất interface** | Trước khi code: confirm shape input/output giữa các module |
+| **Integration test** | Thứ 6 mỗi tuần: chạy `main.py` đầy đủ cùng nhau |
+| **Demo thử** | 1 ngày trước báo cáo: demo thử trên máy báo cáo |
