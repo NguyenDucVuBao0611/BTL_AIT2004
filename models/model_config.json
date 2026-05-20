@@ -1,0 +1,25 @@
+{
+  "sequence_length": 30,
+  "num_features": 126,
+  "num_classes": 5,
+  "gestures": ["Hello", "Thanks", "Yes", "No", "ILoveYou"],
+  "best_arch": "lstm",
+  "model_file": "models/sign_lstm.h5",
+  "tflite_file": "models/sign_lstm.tflite",
+  "input_shape": [30, 126],
+  "normalize": true,
+  "mean_file": "dataset/mean.npy",
+  "std_file": "dataset/std.npy",
+  "inference": {
+    "threshold": 0.7,
+    "smoothing_window": 5,
+    "smoothing_method": "majority_vote"
+  },
+  "training": {
+    "epochs": 100,
+    "batch_size": 32,
+    "optimizer": "adam",
+    "learning_rate": 0.001,
+    "early_stopping_patience": 15
+  }
+}
