@@ -1,0 +1,22 @@
+# Thư mục môi trường ảo (Venv)
+venv/
+.venv/
+env/
+ENV/
+
+# Các tệp biên dịch Python (Bytecode)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter Notebook cache
+.ipynb_checkpoints/
+
+# IDE config
+.vscode/
+.idea/
+
+# Các tệp log và ảnh test tạm thời
+*.log
+scratch/
