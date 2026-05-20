@@ -96,6 +96,8 @@ def augment_sequence(sequence):
 
 ---
 
+
+
 ---
 
 # 🧠 NHÓM 2 — NÂNG CẤP MODEL (Người 2)
@@ -290,6 +292,16 @@ Người xem thấy ngay model đang "nghĩ" gì → trực quan và chuyên ngh
 1. Hiển thị ảnh mẫu động tác cần làm
 2. Người dùng bắt chước trước camera
 3. Hệ thống chấm điểm: `Đúng rồi! ✅` hoặc `Thử lại nhé ❌`
+
+---
+
+## 20. Giao diện xem lại và quay đè trực tiếp (Replay & Targeted Retake UI - Đã tích hợp)
+
+**Lý do:** Giúp người thu thập dữ liệu (Người 1) tương tác trực quan ngay trên luồng ảnh webcam khi quay lỗi, thay vì phải tắt đi mở lại code bằng tay.
+
+**Giải pháp:** 
+- **Interactive Replay:** Thiết kế màn hình lặp lại (loop) 30 frame hình ảnh thực tế của camera cùng nét vẽ xương sau mỗi sequence để kiểm tra tư thế.
+- **On-Screen Navigation:** Thêm hiển thị menu hướng dẫn phím bấm tắt `[Y]` (Đồng ý/Lưu đè) hoặc `[R]` (Hủy/Quay lại) ngay trên giao diện OpenCV.
 
 ---
 

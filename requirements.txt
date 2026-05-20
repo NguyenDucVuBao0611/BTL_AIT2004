@@ -1,0 +1,16 @@
+# ====================================================
+# requirements.txt - BTL AIT2004
+# Thu thập dữ liệu ngôn ngữ ký hiệu bằng MediaPipe
+# ====================================================
+
+# Xử lý ảnh/video từ webcam
+opencv-python>=4.8.0
+
+# Tính toán mảng keypoint (landmark vectors)
+numpy>=1.24.0
+
+# Nhận diện landmark cơ thể, tay, mặt
+mediapipe>=0.10.0
+
+# tkinter đã có sẵn trong Python (built-in), không cần cài thêm
+# os, sys, time, argparse cũng là built-in modules
