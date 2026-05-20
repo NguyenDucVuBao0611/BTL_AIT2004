@@ -23,12 +23,13 @@
 | 12 | Auto-generate Report PDF | ⭐⭐ Trung bình | 🔥 | Người 2 |
 | 13 | FastAPI REST API | ⭐⭐⭐ Cao | 🔥 | Cả nhóm |
 | 14 | Gesture Heatmap Visualization | ⭐⭐⭐ Cao | 🔥 | Người 2 |
-| 15 | Chế độ "Học gesture" tương tác | ⭐⭐⭐ Cao | ⭐ Bonus | Người 3 |
+| 15 | ~~Chế độ "Học gesture" tương tác~~ | ⭐⭐⭐ Cao | ❌ Bỏ qua | — |
 | 16 | Multi-hand Dominance Detection | ⭐⭐ Trung bình | 🔥 | Người 1 |
 | 17 | README + GIF demo | ⭐ Thấp | 🔥🔥 | Cả nhóm |
 | 18 | Script validate_dataset tự động | ⭐ Thấp | 🔥🔥 | Người 1 |
 | 19 | Cross-validation 5-fold | ⭐⭐ Trung bình | 🔥 | Người 2 |
 | 20 | Threshold động chống flickering | ⭐ Thấp | 🔥🔥🔥 | Người 3 |
+| 21 | Tự thêm gesture do người dùng định nghĩa | ⭐⭐⭐ Cao | 🔥🔥🔥 | Cả nhóm |
 
 ---
 
@@ -286,12 +287,9 @@ Người xem thấy ngay model đang "nghĩ" gì → trực quan và chuyên ngh
 
 ---
 
-## 19. Chế độ "Học gesture" tương tác
+## ~~19. Chế độ "Học gesture" tương tác~~ ❌ ĐÃ BỎ QUA
 
-**Flow hoạt động:**
-1. Hiển thị ảnh mẫu động tác cần làm
-2. Người dùng bắt chước trước camera
-3. Hệ thống chấm điểm: `Đúng rồi! ✅` hoặc `Thử lại nhé ❌`
+> **Lý do bỏ:** Không tương thích với tính năng tự thêm gesture động (#21) — không thể có ảnh mẫu định sẵn cho gesture do người dùng tự định nghĩa. Độ phức tạp cao nhưng ưu tiên thấp (Bonus). Để lại cho **v2.0** nếu có thời gian.
 
 ---
 
@@ -377,3 +375,87 @@ TUẦN 3 — Demo WOW
 | 🥉 3 | Sentence Builder | Cảm giác giao tiếp thật sự |
 | 4 | Bidirectional LSTM | Accuracy tăng đáng kể |
 | 5 | TFLite export | FPS cao hơn, demo mượt hơn |
+
+---
+
+---
+
+# 🗂️ NHÓM 6 — MỞ RỘNG ĐỘNG (Cả nhóm)
+
+## 21. Tự thêm gesture do người dùng định nghĩa (Dynamic Gesture Manager)
+
+**Vấn đề hiện tại:** Danh sách gesture bị hard-code trong `config.py` → muốn thêm gesture mới phải sửa code thủ công và retrain từ đầu.
+
+**Ý tưởng nâng cấp:** Người dùng có thể tự thêm gesture mới hoàn toàn qua UI, không cần chạm vào code.
+
+---
+
+### 🔗 Phụ thuộc — Cần Người 3 làm trước
+
+> **Người 3 (UI Engineer) cần xây xong giao diện thu data trước.**
+> Giao diện thu data đó sẽ được **nhúng trực tiếp** vào tính năng "Thêm gesture mới" của người dùng.
+> Người 1 (Data Engineer) sẽ kết nối backend (tạo folder, ghi `actions.json`) với UI của Người 3.
+
+**Phân công rõ ràng:**
+
+| Người | Nhiệm vụ |
+|---|---|
+| **Người 3** | Xây giao diện thu data (nhập tên gesture, hiển thị camera, đếm ngược, replay) |
+| **Người 1** | Viết backend: `add_action()`, đọc/ghi `actions.json`, tạo folder dataset |
+| **Người 2** | Kích hoạt lại training pipeline khi có gesture mới |
+
+---
+
+### Flow hoạt động tổng thể:
+
+```
+[UI - Người 3]                    [Backend - Người 1]
+Người dùng nhập tên gesture  →    Ghi vào actions.json
+                                   Tạo thư mục dataset/<tên>/
+Giao diện thu data hiện ra   ←    (tái sử dụng UI thu data đã làm)
+Quay đủ sequences                 
+Nhấn Lưu                     →    Lưu file .npy vào đúng thư mục
+                                   
+                                   [Model - Người 2]
+Thông báo "Cần retrain"      ←    Trigger training pipeline
+Gesture mới hoạt động! ✅
+```
+
+---
+
+### Thay đổi kỹ thuật cần thiết:
+
+```python
+# Trước: Hard-code trong config.py
+ACTIONS = ["hello", "thanks", "iloveyou"]
+
+# Sau: Đọc động từ file JSON
+import json
+
+def load_actions():
+    with open("actions.json", "r") as f:
+        return json.load(f)["actions"]
+
+def add_action(name: str):
+    actions = load_actions()
+    if name not in actions:
+        actions.append(name)
+    with open("actions.json", "w") as f:
+        json.dump({"actions": actions}, f, ensure_ascii=False, indent=2)
+
+ACTIONS = load_actions()
+```
+
+```json
+// actions.json
+{
+  "actions": ["hello", "thanks", "iloveyou", "yes", "no"]
+}
+```
+
+**Liên kết với ý tưởng #19:** Chế độ "Học gesture" tương tác tự động hoạt động với gesture tự thêm vì reference lấy từ `.npy` trong dataset — không cần ảnh mẫu định sẵn.
+
+**Độ khó:** ⭐⭐⭐ Cao (cần phối hợp cả 3 người, sửa pipeline thu data + training + inference đều đọc từ `actions.json`)
+
+**Ưu tiên:** 🔥🔥🔥 — Đây là tính năng làm project **khác biệt hoàn toàn** so với các project cùng loại.
+
