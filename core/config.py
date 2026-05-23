@@ -6,7 +6,7 @@ import os
 
 # Danh sách các từ/ký hiệu cần thu thập và nhận diện
 # Thêm hoặc xóa gesture tại đây, collect_data.py và train.py sẽ tự nhận
-ACTIONS = ["hello", "thanks", "iloveyou", "yes", "no"]
+ACTIONS = ["hello","idle", "thanks", "iloveyou", "yes", "no"]
 
 # Số lượng video mẫu thu thập cho mỗi gesture
 NO_SEQUENCES = 30
@@ -15,4 +15,5 @@ NO_SEQUENCES = 30
 SEQUENCE_LENGTH = 30
 
 # Đường dẫn thư mục gốc lưu dataset
-DATA_PATH = os.path.join("dataset")
+DATA_PATH = os.path.join("datasetHF", "train")
+

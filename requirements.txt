@@ -4,13 +4,24 @@
 # ====================================================
 
 # Xử lý ảnh/video từ webcam
-opencv-python>=4.8.0
+opencv-python==4.9.0.80
 
 # Tính toán mảng keypoint (landmark vectors)
-numpy>=1.24.0
+numpy==1.26.4
 
 # Nhận diện landmark cơ thể, tay, mặt
-mediapipe>=0.10.0
+mediapipe==0.10.10
 
-# tkinter đã có sẵn trong Python (built-in), không cần cài thêm
-# os, sys, time, argparse cũng là built-in modules
+# Giao diện Web UI (Streamlit)
+streamlit==1.57.0
+
+# Text-to-Speech (đọc kết quả)
+pyttsx3==2.90
+
+# Xử lý dữ liệu bảng
+pandas==2.3.3
+
+# Sửa lỗi tương thích JAX/MediaPipe trên Windows
+ml-dtypes==0.5.4
+
+
