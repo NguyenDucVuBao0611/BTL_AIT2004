@@ -23,5 +23,21 @@ class Agent:
         """
         raise NotImplementedError("Phương thức act() cần được cài đặt ở lớp con.")
 
+    def observe(self, action: Action, acting_player: int):
+        """Cập nhật thông tin sau khi bất kỳ người chơi nào (bao gồm cả bản thân) thực hiện hành động.
+        Được gọi bởi Referee sau mỗi nước đi hợp lệ.
+        
+        Args:
+            action (Action): Hành động vừa được thực hiện.
+            acting_player (int): ID của người chơi vừa thực hiện hành động.
+        """
+        pass # Mặc định không làm gì (dành cho các agent không trạng thái)
+
+    def reset(self):
+        """Reset trạng thái nội bộ của Agent. 
+        Được gọi bởi Referee trước mỗi ván (game) đấu mới hoặc vòng đấu mới.
+        """
+        pass # Mặc định không làm gì
+
     def __str__(self):
         return self.name

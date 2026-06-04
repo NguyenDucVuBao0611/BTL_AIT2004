@@ -27,6 +27,9 @@ class Referee:
         self.log(f"Người chơi 1: {self.agents[1]}")
         self.log(f"Mỗi người bắt đầu với {self.start_dice} xúc xắc. Mặt 1 là Wild!\n")
 
+        for agent in self.agents:
+            agent.reset()
+
         round_num = 1
         
         while not self.state.is_game_over():
@@ -57,7 +60,28 @@ class Referee:
                 
                 # Áp dụng hành động lên game
                 outcome = apply_action(self.state, action)
-                self.game_log.append(outcome)
+                
+                # Gọi observe cho cả 2 agent cập nhật trạng thái
+                for a in self.agents:
+                    a.observe(action, curr_player_id)
+                
+                # Tạo log event chuẩn JSON cho Người 3 phân tích
+                log_event = {
+                    "type": outcome["type"],
+                    "player": curr_player_id
+                }
+                if outcome["type"] == "bid":
+                    log_event["quantity"] = action.quantity
+                    log_event["face"] = action.face_value
+                    log_event["dice_p0"] = list(self.state.hands[0])
+                    log_event["dice_p1"] = list(self.state.hands[1])
+                elif outcome["type"] == "challenge":
+                    log_event["result"] = "win" if outcome["challenge_success"] else "lose"
+                    log_event["actual_count"] = outcome["actual_count"]
+                    log_event["loser"] = outcome["loser"]
+                    log_event["hands"] = outcome["hands"]
+                    
+                self.game_log.append(log_event)
                 
                 # Hiển thị hành động ra màn hình
                 if outcome["type"] == "bid":
@@ -86,6 +110,12 @@ class Referee:
 
         # Game kết thúc
         winner_id = self.state.get_winner()
+        self.game_log.append({
+            "type": "game_end",
+            "winner": winner_id,
+            "rounds": round_num - 1
+        })
+        
         winner_name = self.agents[winner_id].name
         self.log(f"=== TRẬN ĐẤU KẾT THÚC ===")
         self.log(f"Người chiến thắng chung cuộc là: {winner_name} 🎉")

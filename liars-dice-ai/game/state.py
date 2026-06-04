@@ -3,7 +3,15 @@ from typing import List, Optional
 from game.actions import Action, Bid
 
 class GameState:
-    """Đại diện cho toàn bộ trạng thái của một trận đấu Liar's Dice 2 người chơi."""
+    """Đại diện cho toàn bộ trạng thái của một trận đấu Liar's Dice 2 người chơi.
+    
+    BẤT BIẾN (INVARIANTS):
+    1. Tổng số xúc xắc (dice_counts) giảm dần. Người thua trong một vòng bị trừ chính xác 1 xúc xắc.
+    2. Một vòng chơi kết thúc ngay lập tức khi có người gọi Challenge.
+    3. Bid mới luôn hợp lệ (số lượng tăng, hoặc số lượng bằng nhưng mặt xúc xắc tăng so với current_bid).
+    4. Trò chơi kết thúc khi có 1 người chơi có dice_count == 0.
+    5. observation trả về KHÔNG được phép rò rỉ giá trị xúc xắc trong tay đối thủ (Chống Information Leakage).
+    """
     def __init__(self, start_dice: int = 5):
         self.num_players = 2
         # Số lượng xúc xắc còn lại của mỗi người chơi
