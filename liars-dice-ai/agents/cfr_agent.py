@@ -6,9 +6,15 @@ from game.engine import count_matching_dice, get_legal_actions, apply_action
 from game.state import GameState
 
 class CFRAgent(Agent):
-    """CFRAgent sử dụng thuật toán Counterfactual Regret Minimization (CFR) 
-    qua tự chơi (Self-play) để hội tụ về Cân bằng Nash (Nash Equilibrium).
-    Nếu gặp trạng thái chưa được học, Agent tự động gọi Fallback sang ProbabilisticAgent.
+    """Agent LẤY CẢM HỨNG từ Counterfactual Regret Minimization (CFR) qua tự chơi
+    (self-play). Đây là biến thể XẤP XỈ, không đảm bảo hội tụ Nash chính xác vì:
+      (1) giới hạn độ sâu (max_depth=4) và ước lượng nút lá bằng heuristic;
+      (2) nút lá đánh giá với thông tin hoàn hảo (biết cả xúc xắc đối thủ trong
+          mỗi ván self-play), thay vì lấy kỳ vọng đúng trên thông tin ẩn.
+    Mục tiêu thực tế: học chiến lược HỖN HỢP ít bị khai thác (low-exploitability)
+    trong trò chơi đã trừu tượng hóa. Liên quan Bài 4 (đối kháng/lý thuyết trò chơi)
+    và Bài 8-9 (học qua tương tác / regret minimization).
+    Khi gặp trạng thái chưa học, tự động Fallback sang ProbabilisticAgent.
     """
     def __init__(self, name: str = "CFRAgent"):
         super().__init__(name)
@@ -16,7 +22,10 @@ class CFRAgent(Agent):
         self.regret_table: Dict[str, Dict[str, float]] = {}
         # Bảng chiến thuật tích lũy: infoset_key -> {action_str: strategy_sum}
         self.strategy_table: Dict[str, Dict[str, float]] = {}
-        
+
+        # Tổng số vòng lặp self-play đã huấn luyện (để tính regret trung bình)
+        self.iterations_trained: int = 0
+
         # Lớp fallback an toàn khi gặp trạng thái lạ
         self.fallback_agent: Optional[Agent] = None
 
@@ -195,8 +204,28 @@ class CFRAgent(Agent):
             state.current_bid = None
             state.current_player = random.randint(0, 1)
             state.history = []
-            
+
             self.cfr_search(state, 1.0, 1.0, depth=0)
+
+        # Ghi nhận tổng số vòng lặp để tính regret trung bình (chặn trên exploitability)
+        self.iterations_trained += iterations
+
+    def average_regret(self) -> float:
+        """Trả về regret dương trung bình trên mỗi infoset, chuẩn hóa theo số vòng lặp.
+
+        Theo lý thuyết CFR, regret trung bình R^T/T chặn trên khoảng cách tới cân
+        bằng (exploitability) và phải tiến về 0 khi số vòng lặp T tăng. Đây là chỉ
+        số hội tụ thực nghiệm: giá trị càng nhỏ ⇒ chiến lược càng khó bị khai thác.
+        """
+        if self.iterations_trained == 0 or not self.regret_table:
+            return float("inf")
+
+        total = 0.0
+        for regrets in self.regret_table.values():
+            # Regret dương lớn nhất tại infoset này (phần "đáng tiếc" còn lại)
+            total += max((max(0.0, r) for r in regrets.values()), default=0.0)
+
+        return total / (self.iterations_trained * len(self.regret_table))
 
     def act(self, observation: dict, legal_actions: List[Action]) -> Action:
         my_dice = tuple(observation["my_dice"])

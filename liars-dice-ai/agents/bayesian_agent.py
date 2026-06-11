@@ -5,179 +5,144 @@ from game.engine import count_matching_dice
 from core.probability import binomial_probability
 
 class BayesianAgent(Agent):
-    """BayesianAgent áp dụng mô hình Naive Bayes để theo dõi và cập nhật niềm tin 
-    về xu hướng nói dối (bluff) của đối thủ trực tuyến (online) qua các vòng đấu.
-    Từ đó tính toán ngưỡng quyết định động (dynamic_threshold) để bắt bài đối thủ.
+    """Agent suy luận Bayes trực tuyến (online) về xu hướng nói dối (bluff) của đối thủ.
+
+    Mô hình: coi "đối thủ có bluff hay không ở một cược ĐÃ ĐƯỢC LẬT TẨY" là một phép
+    thử Bernoulli với xác suất θ chưa biết. Đặt tiên nghiệm Beta(α0, β0) cho θ và cập
+    nhật hậu nghiệm sau mỗi lần một cược của đối thủ được Challenge phân định đúng/sai:
+
+        θ̂ = E[θ | dữ liệu] = (k + α0) / (n + α0 + β0)
+
+    với n = số cược của đối thủ đã được lật tẩy, k = số trong đó là bluff (cược sai).
+
+    KHÁC với cách đếm thiên lệch trước đây: tử số (k) và mẫu số (n) đếm trên CÙNG một
+    tập (các cược đã được phân định), nên ước lượng không bị lệch thấp. Mỗi vòng Liar's
+    Dice luôn kết thúc bằng một Challenge, nên ta thu được đúng một mẫu có nhãn mỗi vòng.
+
+    Từ θ̂ suy ra ngưỡng Challenge động: đối thủ càng hay bluff ⇒ ngưỡng càng cao ⇒ ta
+    càng dễ tố cáo. Liên quan Bài 16-17 (suy luận xác suất / cập nhật niềm tin).
     """
-    def __init__(self, name: str = "BayesianAgent"):
+    def __init__(self, name: str = "BayesianAgent",
+                 prior_alpha: float = 1.0, prior_beta: float = 2.0):
         super().__init__(name)
         # ID của ta và đối thủ
         self.player_id: Optional[int] = None
         self.opponent_id: Optional[int] = None
-        
-        # Thống kê suy luận Bayes tích lũy trong trận đấu
-        self.bluff_opportunities: int = 0
-        self.actual_bluffs: int = 0
-        
-        # Hàng đợi lưu các quan sát thu được trước khi xác định được player_id
+
+        # Tiên nghiệm Beta(α0, β0). Mặc định Beta(1, 2) ⇒ kỳ vọng tiên nghiệm 1/3.
+        self.prior_alpha = prior_alpha
+        self.prior_beta = prior_beta
+
+        # Thống kê hậu nghiệm: n cược đã phân định, k trong đó là bluff
+        self.resolved_opp_bids: int = 0
+        self.opp_bluffs: int = 0
+
+        # Hàng đợi quan sát thu được trước khi xác định được player_id
         self.pending_observations: List[tuple] = []
-        
-        # Danh sách cược của đối thủ trong vòng này để xử lý
-        self.observed_bids: List[dict] = []
-        
-        # Lưu vết thông tin lượt Challenge vừa qua để kiểm tra kết quả
+
+        # Lưu vết lượt Challenge vừa xảy ra để đối chiếu kết quả ở lượt act kế tiếp
         self.last_challenge: Optional[dict] = None
-        
-        # Lưu vết số xúc xắc gần nhất để phát hiện mất xúc xắc
+
+        # Số xúc xắc gần nhất của hai bên để phát hiện ai mất xúc xắc sau challenge
         self.last_dice_counts: Optional[dict] = None
-        
-        # Xúc xắc hiện tại của ta
-        self.my_dice: Optional[List[int]] = None
-        
-        # Trạng thái vòng đấu hiện tại
-        self.is_current_round_active: bool = False
 
     def reset(self):
         """Reset trạng thái nội bộ khi bắt đầu một game đấu mới."""
         self.player_id = None
         self.opponent_id = None
-        self.bluff_opportunities = 0
-        self.actual_bluffs = 0
+        self.resolved_opp_bids = 0
+        self.opp_bluffs = 0
         self.pending_observations.clear()
-        self.observed_bids.clear()
         self.last_challenge = None
         self.last_dice_counts = None
-        self.my_dice = None
-        self.is_current_round_active = False
+
+    def bluff_rate(self) -> float:
+        """Kỳ vọng hậu nghiệm θ̂ của xác suất đối thủ bluff (Beta-Bernoulli)."""
+        return ((self.opp_bluffs + self.prior_alpha)
+                / (self.resolved_opp_bids + self.prior_alpha + self.prior_beta))
 
     def observe(self, action: Action, acting_player: int):
-        """Theo dõi hành động của người chơi để thu thập dữ liệu huấn luyện online."""
+        """Theo dõi hành động của người chơi để thu thập dữ liệu suy luận online."""
         if self.player_id is None:
             self.pending_observations.append((action, acting_player))
             return
         self._process_observation(action, acting_player)
 
     def _process_observation(self, action: Action, acting_player: int):
-        # 1. Nếu đối thủ thực hiện Bid
-        if isinstance(action, Bid) and acting_player == self.opponent_id:
-            opp_dice = 5
-            if self.last_dice_counts is not None:
-                opp_dice = self.last_dice_counts[self.opponent_id]
-                
-            bid_info = {
-                "bid": action,
-                "opponent_dice_count": opp_dice,
-                "processed": False
-            }
-            self.observed_bids.append(bid_info)
-            
-            # Nếu ta đã có thông tin xúc xắc của vòng này và vòng đấu đang hoạt động
-            if self.my_dice is not None and self.is_current_round_active:
-                self._process_single_bid(bid_info)
-                
-        # 2. Nếu có hành động Challenge
-        elif isinstance(action, Challenge):
-            self.is_current_round_active = False
-            
-            # Người cược bị tố cáo là 1 - acting_player
-            bidder = 1 - acting_player
-            
+        # Chỉ cần ghi nhận thời điểm Challenge; kết quả (ai mất xúc xắc) sẽ được
+        # đối chiếu ở lượt act() kế tiếp dựa trên thay đổi số xúc xắc.
+        if isinstance(action, Challenge):
             self.last_challenge = {
-                "bidder": bidder,
-                "challenger": acting_player
+                "bidder": 1 - acting_player,      # người bị tố cáo
+                "challenger": acting_player,
             }
-            
-            # Xóa các cược của vòng này để chuẩn bị cho vòng tiếp theo
-            self.observed_bids.clear()
 
-    def _process_single_bid(self, bid_info: dict):
-        bid = bid_info["bid"]
-        opp_dice_count = bid_info["opponent_dice_count"]
-        
-        # Số lượng mặt cược trên tay ta (đã tính wild 1 nếu cược mặt 2-6)
-        my_count = count_matching_dice([self.my_dice], bid.face_value)
-        
-        # Xác suất một viên đơn lẻ khớp
-        p_single = 1/6 if bid.face_value == 1 else 1/3
-        
-        # Số lượng cược kỳ vọng an toàn E
-        E = my_count + p_single * opp_dice_count
-        
-        # Nếu cược vượt quá kỳ vọng, đây là cơ hội nói dối (Bluff Opportunity)
-        if bid.quantity > E:
-            self.bluff_opportunities += 1
-            
-        bid_info["processed"] = True
+    def _resolve_last_challenge(self, observation: dict):
+        """Cập nhật hậu nghiệm Beta từ kết quả của lượt Challenge gần nhất.
+
+        Một Challenge luôn lật tẩy cược đang đứng (current_bid) của `bidder`. Nếu
+        bidder chính là đối thủ thì đây là một mẫu có nhãn về xu hướng bluff của họ:
+          - đối thủ mất xúc xắc ⇒ cược của họ SAI ⇒ bluff bị bắt   (k += 1, n += 1)
+          - ta mất xúc xắc       ⇒ cược của họ ĐÚNG ⇒ không bluff   (n += 1)
+        """
+        if self.last_challenge is None or self.last_dice_counts is None:
+            return
+
+        # Chỉ học khi người bị tố cáo là đối thủ (cược của họ được phân định)
+        if self.last_challenge["bidder"] == self.opponent_id:
+            old_opp = self.last_dice_counts[self.opponent_id]
+            new_opp = observation["opponent_dice_count"]
+
+            self.resolved_opp_bids += 1
+            if new_opp < old_opp:
+                # Đối thủ (bidder) mất xúc xắc ⇒ cược sai ⇒ đó là bluff
+                self.opp_bluffs += 1
+
+        self.last_challenge = None
 
     def act(self, observation: dict, legal_actions: List[Action]) -> Action:
-        # Khởi tạo player_id và opponent_id nếu đi đầu tiên
+        # Khởi tạo player_id/opponent_id và xử lý các quan sát pending
         if self.player_id is None:
             self.player_id = observation["player_id"]
             self.opponent_id = 1 - self.player_id
-            
-            # Xử lý các quan sát pending thu thập trước đó
             for action, acting_player in self.pending_observations:
                 self._process_observation(action, acting_player)
             self.pending_observations.clear()
 
-        # Đánh dấu vòng đấu hiện tại bắt đầu hoạt động
-        self.is_current_round_active = True
-        self.my_dice = observation["my_dice"]
+        # Đối chiếu kết quả Challenge của lượt trước (nếu có) để cập nhật niềm tin
+        self._resolve_last_challenge(observation)
 
-        # Phát hiện kết quả của lượt Challenge trước đó để cập nhật actual_bluffs
-        if self.last_dice_counts is not None and self.last_challenge is not None:
-            old_opp_dice = self.last_dice_counts[self.opponent_id]
-            new_opp_dice = observation["opponent_dice_count"]
-            
-            # Nếu đối thủ là người cược (bidder) và bị mất xúc xắc sau challenge
-            if new_opp_dice < old_opp_dice and self.last_challenge["bidder"] == self.opponent_id:
-                self.actual_bluffs += 1
-            
-            # Đã đối chiếu xong
-            self.last_challenge = None
-
-        # Cập nhật số lượng xúc xắc mới nhất của cả hai bên
+        # Cập nhật số xúc xắc mới nhất của cả hai bên
         self.last_dice_counts = {
             self.player_id: len(observation["my_dice"]),
-            self.opponent_id: observation["opponent_dice_count"]
+            self.opponent_id: observation["opponent_dice_count"],
         }
 
-        # Xử lý hồi tố (retrospective) các cược của đối thủ chưa được tính bluff opportunity của vòng này
-        for bid_info in self.observed_bids:
-            if not bid_info["processed"]:
-                self._process_single_bid(bid_info)
+        # Ngưỡng động ∈ [0.4, 0.6] tỉ lệ thuận với xác suất bluff hậu nghiệm:
+        # đối thủ hay bluff ⇒ ngưỡng cao ⇒ dễ Challenge; thật thà ⇒ ngưỡng thấp ⇒ an toàn.
+        dynamic_threshold = max(0.4, min(0.6, 0.4 + self.bluff_rate() * 0.2))
 
-        # 4. Tính toán bluff_rate và dynamic_threshold
-        if self.bluff_opportunities > 0:
-            bluff_rate = self.actual_bluffs / self.bluff_opportunities
-        else:
-            bluff_rate = 0.3 # Giá trị mặc định ban đầu khi chưa thu thập đủ dữ liệu
-
-        # Ngưỡng động dao động từ [0.4, 0.6] tỷ lệ thuận với bluff_rate
-        # Nếu bluff_rate cao (đối thủ hay nói dối) -> dynamic_threshold cao (tối đa 0.6) -> Dễ Challenge hơn
-        # Nếu bluff_rate thấp (đối thủ thật thà) -> dynamic_threshold thấp (tối thiểu 0.4) -> Khó Challenge hơn (an toàn)
-        dynamic_threshold = max(0.4, min(0.6, 0.4 + (bluff_rate * 0.2)))
-
-        # 5. Logic ra quyết định tương tự ProbabilisticAgent nhưng sử dụng dynamic_threshold
-        counts = {f: count_matching_dice([self.my_dice], f) for f in range(1, 7)}
+        # Logic ra quyết định (giống ProbabilisticAgent nhưng dùng ngưỡng động)
+        my_dice = observation["my_dice"]
+        counts = {f: count_matching_dice([my_dice], f) for f in range(1, 7)}
         current_bid = observation["current_bid"]
 
-        # 5.1. Trường hợp đi đầu vòng (chưa có ai cược)
+        # Trường hợp đi đầu vòng (chưa có ai cược)
         if current_bid is None:
             best_face = max(range(1, 7), key=lambda f: (counts[f], f))
             preferred_bids = [
-                action for action in legal_actions 
+                action for action in legal_actions
                 if isinstance(action, Bid) and action.face_value == best_face
             ]
             if preferred_bids:
                 return min(preferred_bids, key=lambda b: b.quantity)
-            
+
             all_bids = [action for action in legal_actions if isinstance(action, Bid)]
             if all_bids:
                 return min(all_bids, key=lambda b: b.quantity)
             return legal_actions[0]
 
-        # 5.2. Trường hợp đối thủ đã cược
+        # Trường hợp đối thủ đã cược
         Q = current_bid.quantity
         F = current_bid.face_value
         my_count = counts[F]
@@ -185,18 +150,18 @@ class BayesianAgent(Agent):
         n = observation["opponent_dice_count"]
         p = 1/6 if F == 1 else 1/3
 
-        # Tính xác suất đối thủ nói thật
+        # Xác suất đối thủ nói thật
         P_truth = binomial_probability(k, n, p)
 
-        # Quyết định Challenge dựa trên ngưỡng động dynamic_threshold
+        # Quyết định Challenge dựa trên ngưỡng động
         if P_truth < dynamic_threshold and any(isinstance(a, Challenge) for a in legal_actions):
             return Challenge()
 
-        # Ngược lại, nâng cược tối ưu kỳ vọng
+        # Ngược lại, nâng cược an toàn nhất theo mặt ta giữ nhiều nhất
         sorted_faces = sorted(range(1, 7), key=lambda f: (counts[f], f), reverse=True)
         for face in sorted_faces:
             matching_bids = [
-                action for action in legal_actions 
+                action for action in legal_actions
                 if isinstance(action, Bid) and action.face_value == face
             ]
             if matching_bids:
