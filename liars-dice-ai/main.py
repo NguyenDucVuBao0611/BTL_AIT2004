@@ -1,6 +1,13 @@
 import sys
 import os
 
+# Ép stdout/stderr về UTF-8 để in tiếng Việt không lỗi trên console Windows (cp1252).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 # Thêm thư mục dự án vào python path để tránh lỗi import chéo
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
@@ -95,10 +102,49 @@ def run_tournament(num_games=30):
         print()
     print("=" * 80 + "\n")
 
+def make_agent(name):
+    """Tạo agent AI đối thủ cho chế độ chơi người-vs-AI (tên hiển thị = tên loại agent)."""
+    key = (name or "random").lower()
+    if key in ("random", "rand"):
+        return RandomAgent("RandomAgent")
+    if key in ("prob", "probabilistic"):
+        return ProbabilisticAgent("ProbabilisticAgent", threshold=0.5)
+    if key in ("bayes", "bayesian"):
+        return BayesianAgent("BayesianAgent")
+    if key == "cfr":
+        agent = CFRAgent("CFRAgent")
+        print("Đang huấn luyện nhanh CFR (1000 ván self-play)...")
+        agent.train(1000)
+        return agent
+    raise ValueError(f"Agent không hợp lệ: {name}")
+
+
 def main():
-    run_demo()
-    # Chạy giải đấu thu nhỏ với 20 trận để phản hồi nhanh
-    run_tournament(num_games=20)
+    import argparse
+    parser = argparse.ArgumentParser(description="Liar's Dice AI — demo, giải đấu, hoặc chơi vs AI")
+    parser.add_argument("--mode", default="all",
+                        choices=["all", "demo", "tournament", "cli", "gui"],
+                        help="Chế độ chạy (mặc định: all = demo + tournament)")
+    parser.add_argument("--agent", default="bayesian",
+                        help="AI đối thủ cho cli/gui: random | probabilistic | bayesian | cfr")
+    parser.add_argument("--seed", type=int, default=None, help="Seed ngẫu nhiên")
+    parser.add_argument("--games", type=int, default=20, help="Số trận mỗi cặp trong tournament")
+    args = parser.parse_args()
+
+    if args.mode == "all":
+        run_demo()
+        run_tournament(num_games=args.games)
+    elif args.mode == "demo":
+        run_demo()
+    elif args.mode == "tournament":
+        run_tournament(num_games=args.games)
+    elif args.mode == "cli":
+        from ui.cli import play_vs_ai
+        play_vs_ai(make_agent(args.agent), seed=args.seed)
+    elif args.mode == "gui":
+        from ui.gui import play_gui
+        play_gui(make_agent(args.agent), seed=args.seed)
+
 
 if __name__ == "__main__":
     main()
