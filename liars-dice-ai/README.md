@@ -39,7 +39,7 @@ python -m pytest -q
 | `RandomAgent` | Chọn ngẫu nhiên một nước đi hợp lệ (baseline) | — |
 | `ProbabilisticAgent` | Kỳ vọng tham lam 1 bước: ước lượng P(đối thủ nói thật) bằng phân phối **nhị thức tích lũy**, Challenge khi P < ngưỡng cố định | B5 (bất định), B16‑17 (xác suất) |
 | `BayesianAgent` | Cập nhật **hậu nghiệm Beta‑Bernoulli** về xác suất bluff của đối thủ từ các cược đã bị lật tẩy → ngưỡng Challenge **động** | B16‑17 (suy luận Bayes) |
-| `CFRAgent` | **Lấy cảm hứng từ CFR**: self‑play giới hạn độ sâu, học chiến lược hỗn hợp ít bị khai thác (xấp xỉ, không đảm bảo Nash chính xác) | B4 (đối kháng), B8‑9 (regret minimization) |
+| `CFRAgent` | **CFR+** (regret matching+ + linear averaging) self‑play; mạnh hơn bản đầu rõ rệt nhưng vẫn xấp xỉ (giới hạn độ sâu + trừu tượng hoá ⇒ chưa chạm Nash) | B4 (đối kháng), B8‑9 (regret minimization) |
 
 > ⚠️ Tên gọi đã được hiệu chỉnh cho đúng bản chất cài đặt: `ProbabilisticAgent` là
 > heuristic 1 bước (không phải expectimax đầy đủ); `BayesianAgent` là cập nhật niềm tin

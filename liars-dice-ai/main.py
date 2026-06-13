@@ -38,16 +38,16 @@ def run_demo():
     referee_2 = Referee(agent_bayes, agent_prob_2, start_dice=5, verbose=True)
     referee_2.play_game()
 
-def run_tournament(num_games=30, seed=0, make_plots=True):
+def run_tournament(num_games=30, seed=0, make_plots=True, cfr_iters=40000):
     print("\n" + "=" * 50)
     print("PHẦN 2: GIẢI ĐẤU VÒNG TRÒN (ROUND-ROBIN, có seed + cân bằng ghế)")
     print("=" * 50)
     from evaluation.tournament import run_tournament as _run, print_win_matrix
 
-    # 1. Khởi tạo CFR Agent và huấn luyện nhanh qua tự chơi
-    print("Đang huấn luyện nhanh CFR Agent bằng Self-play (5000 iterations)...")
+    # 1. Khởi tạo CFR Agent và huấn luyện qua tự chơi (CFR+ cần nhiều vòng để mạnh)
+    print(f"Đang huấn luyện CFR Agent bằng Self-play ({cfr_iters} iterations)...")
     agent_cfr = CFRAgent("CFRAgent")
-    agent_cfr.train(5000)
+    agent_cfr.train(cfr_iters)
     print(f"Hoàn tất huấn luyện! Đã học được {len(agent_cfr.strategy_table)} trạng thái.")
 
     agents = [
@@ -120,15 +120,16 @@ def main():
     parser.add_argument("--seed", type=int, default=0, help="Seed ngẫu nhiên (tournament/exploit/cli)")
     parser.add_argument("--games", type=int, default=20, help="Số trận mỗi cặp trong tournament")
     parser.add_argument("--iters", type=int, default=20000, help="Tổng vòng lặp self-play cho mode exploit")
+    parser.add_argument("--cfr-iters", type=int, default=40000, help="Số vòng self-play huấn luyện CFR trước tournament")
     args = parser.parse_args()
 
     if args.mode == "all":
         run_demo()
-        run_tournament(num_games=args.games, seed=args.seed)
+        run_tournament(num_games=args.games, seed=args.seed, cfr_iters=args.cfr_iters)
     elif args.mode == "demo":
         run_demo()
     elif args.mode == "tournament":
-        run_tournament(num_games=args.games, seed=args.seed)
+        run_tournament(num_games=args.games, seed=args.seed, cfr_iters=args.cfr_iters)
     elif args.mode == "exploit":
         run_exploit(total_iterations=args.iters, seed=args.seed)
     elif args.mode == "cli":

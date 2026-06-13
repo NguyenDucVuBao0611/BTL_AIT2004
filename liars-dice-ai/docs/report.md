@@ -77,19 +77,26 @@ Liar's Dice luôn kết thúc bằng một Challenge nên ta thu được đúng
 **Lưu ý trung thực:** đây là *cập nhật niềm tin Bayes* (Bài 16‑17), **không** phải bộ phân
 loại Naive Bayes (Bài 10).
 
-### 3.4 CFRAgent — lấy cảm hứng từ Counterfactual Regret Minimization
-Tự chơi (self‑play) duyệt cây trò chơi đã **trừu tượng hoá hành động** (giữ Challenge +
-bid tối thiểu mỗi mặt + bid tăng 1 đơn vị; tối đa 6 hành động), dùng **regret matching**
-để cập nhật chiến lược hỗn hợp, và lưu chiến lược trung bình. Khi gặp trạng thái chưa học,
-tự động **fallback** sang ProbabilisticAgent.
+### 3.4 CFRAgent — Counterfactual Regret Minimization (bản nâng cấp CFR+)
+Tự chơi (self‑play) duyệt cây trò chơi đã **trừu tượng hoá hành động** (Challenge + bid
+tối thiểu mỗi mặt + bid tăng 1 đơn vị), dùng **regret matching** cập nhật chiến lược hỗn
+hợp và lưu chiến lược trung bình. Gặp trạng thái chưa học thì **fallback** sang Probabilistic.
 
-**Giới hạn lý thuyết (nêu rõ để defend đúng mực):**
-1. **Giới hạn độ sâu** (`max_depth = 4`) với ước lượng nút lá bằng heuristic.
-2. **Nút lá đánh giá với thông tin hoàn hảo** (biết cả xúc xắc đối thủ trong mỗi ván
-   self‑play) thay vì lấy kỳ vọng đúng trên thông tin ẩn.
+**Nâng cấp đã thực hiện (so với bản đầu):**
+1. **CFR+**: regret tích lũy được *sàn hoá ≥ 0* mỗi bước (regret matching+) và chiến lược
+   trung bình lấy có **trọng số tuyến tính theo vòng lặp** (linear averaging). Hai kỹ thuật
+   này giúp hội tụ nhanh hơn nhiều bậc so với CFR thường.
+2. **Nút lá chính xác hơn**: khi cắt độ sâu, ước lượng giá trị bằng *kết cục thật của ván
+   đã bốc* (nếu challenge ngay) thay vì heuristic — qua nhiều ván sampling cho ước lượng
+   giá trị subgame tốt hơn rõ rệt (thực nghiệm: thay heuristic "kỳ vọng" làm tụt win‑rate).
+3. **Huấn luyện lâu hơn** (mặc định 40 000 vòng): CFR+ chỉ bộc lộ sức mạnh khi train đủ.
 
-Do đó đây là biến thể **xấp xỉ**, *không* đảm bảo hội tụ về cân bằng Nash chính xác. Mục
-tiêu thực tế là học chiến lược hỗn hợp **ít bị khai thác** trong trò chơi trừu tượng hoá.
+**Giới hạn còn lại (defend trung thực):** vẫn **giới hạn độ sâu** (`MAX_DEPTH = 4`) và
+**trừu tượng hoá hành động**, nên CFR hội tụ về cân bằng của *trò chơi đã trừu tượng hoá*,
+chưa phải Nash của trò chơi gốc. Trong trò chơi đối xứng tổng‑bằng‑không, một chiến lược
+Nash thật sẽ đảm bảo ≥ 50% trước *mọi* đối thủ; agent của ta đạt ~57% tổng và ~37% trước
+ProbabilisticAgent (xem §5) — đã cải thiện đáng kể nhưng chưa chạm trần Nash. Hướng vượt
+trần: bỏ giới hạn độ sâu bằng **MCCFR (lấy mẫu)** và/hoặc trừu tượng hoá tinh hơn.
 
 ## 4. Phương pháp đánh giá
 
@@ -114,36 +121,37 @@ python main.py --mode exploit --iters 20000 --seed 0
 
 > Chạy với `--seed 0`. Lệnh tái lập ở §8. Biểu đồ trong `results/`.
 
-### 5.1 Giải đấu round‑robin (200 ván/cặp, cân bằng ghế)
+### 5.1 Giải đấu round‑robin (200 ván/cặp, cân bằng ghế, CFR train 40k)
 
 | Agent | Win‑rate tổng | Ghi chú đối đầu |
 |---|---:|---|
-| BayesianAgent | **75.7%** | Thắng Probabilistic 51.5%, thắng CFR 75.5% |
-| ProbabilisticAgent | 74.0% | Thắng CFR 73.5% |
-| CFRAgent (xấp xỉ) | 50.3% | Thua Probabilistic 26.5%, thua Bayesian 24.5% |
+| BayesianAgent | **72.3%** | Thắng Probabilistic 52.0%, thắng CFR 65.0% |
+| ProbabilisticAgent | 70.3% | Thắng CFR 63.0% |
+| CFRAgent (CFR+) | 57.3% | Thua Probabilistic 37.0%, thua Bayesian 35.0% |
 | RandomAgent | 0.0% | Thua mọi agent có chiến lược |
 
 Nhận xét: cả hai agent dựa trên xác suất đè bẹp RandomAgent (100%). **BayesianAgent nhỉnh
-hơn ProbabilisticAgent** nhờ ngưỡng Challenge động học được — đúng kỳ vọng thiết kế. CFR
-**xấp xỉ** chỉ ở mức trung bình, phù hợp với giới hạn lý thuyết ở §3.4. Biểu đồ:
-`results/win_matrix.png`, `results/agent_stats.png`.
+hơn ProbabilisticAgent** nhờ ngưỡng Challenge động — đúng kỳ vọng thiết kế. **CFR+ đã cải
+thiện rõ** so với bản đầu (win‑rate tổng 50.3% → **57.3%**; vs Probabilistic 26.5% →
+**37.0%**; vs Bayesian 24.5% → **35.0%**), tiến gần nhưng chưa qua mốc Nash 50% trước hai
+agent xác suất (giới hạn ở §3.4). Biểu đồ: `results/win_matrix.png`, `results/agent_stats.png`.
 
-### 5.2 Hội tụ CFR (20000 vòng lặp, bước 2000, eval 200 ván/mốc)
+### 5.2 Hội tụ CFR+ (40000 vòng lặp, bước 2000, eval 200 ván/mốc)
 
 | Vòng lặp | avg_regret (↓) | Win‑rate vs Probabilistic |
 |---:|---:|---:|
-| 2000  | 0.000141 | 19.0% |
-| 6000  | 0.000075 | 24.0% |
-| 10000 | 0.000057 | 25.5% |
-| 14000 | 0.000047 | 29.5% |
-| 20000 | 0.000039 | 39.5% |
+| 2000  | 0.000118 | 22.5% |
+| 8000  | 0.000055 | 25.5% |
+| 16000 | 0.000039 | 40.0% |
+| 24000 | 0.000032 | 38.0% |
+| 32000 | 0.000027 | 35.5% |
+| 40000 | 0.000025 | 41.5% |
 
-Regret trung bình **giảm đơn điệu** `0.000141 → 0.000039` ⇒ xác nhận hội tụ (đại lượng
-chặn trên exploitability tiến về 0). Song song, **win‑rate thực nghiệm cải thiện**
-`19% → 39.5%` ⇒ chiến lược ngày càng mạnh hơn theo huấn luyện, dù vẫn dưới 50% trước một
-agent xác suất chắc chắn (hệ quả của xấp xỉ giới hạn độ sâu + nút lá thông tin hoàn hảo).
-Đây là kết luận trung thực, củng cố phần giới hạn ở §3.4. Biểu đồ:
-`results/cfr_convergence.png`.
+Regret trung bình **giảm đơn điệu** `0.000118 → 0.000025` ⇒ xác nhận hội tụ (đại lượng
+chặn trên exploitability tiến về 0). Win‑rate thực nghiệm **đi lên rõ** `22% → ~42%` (đỉnh
+43.5% quanh 38k) — chiến lược mạnh dần theo huấn luyện và **vượt mốc bản đầu (39.5%)**, dù
+vẫn dưới 50% (trần do trừu tượng hoá + giới hạn độ sâu, không phải do thiếu huấn luyện).
+Biểu đồ: `results/cfr_convergence.png`.
 
 ## 6. Mức độ phủ chương trình môn học
 
