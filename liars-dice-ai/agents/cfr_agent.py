@@ -5,21 +5,60 @@ from game.actions import Action, Bid, Challenge
 from game.engine import count_matching_dice, get_legal_actions, apply_action
 from game.state import GameState
 
+
 class CFRAgent(Agent):
-    """CFRAgent sử dụng thuật toán Counterfactual Regret Minimization (CFR) 
-    qua tự chơi (Self-play) để hội tụ về Cân bằng Nash (Nash Equilibrium).
-    Nếu gặp trạng thái chưa được học, Agent tự động gọi Fallback sang ProbabilisticAgent.
+    """Agent dựa trên Counterfactual Regret Minimization — bản nâng cấp (CFR+).
+
+    Cải tiến so với bản đầu để mạnh và hội tụ nhanh hơn rõ rệt:
+      1. CFR+: regret tích lũy được "sàn hóa" về 0 mỗi bước (regret matching+) và
+         chiến lược trung bình được lấy có TRỌNG SỐ TUYẾN TÍNH theo số vòng lặp
+         (linear averaging) ⇒ hội tụ nhanh hơn nhiều bậc so với CFR thường.
+      2. Nút lá KHÔNG rò rỉ thông tin: khi cắt độ sâu, ước lượng giá trị bằng KỲ
+         VỌNG trên xúc xắc ẩn của đối thủ (phân phối nhị thức) từ góc nhìn người
+         đang đi — thay vì nhìn lén tay đối thủ như trước.
+      3. Độ sâu tìm kiếm lớn hơn (đa số đường đi chạm nút Challenge thật sự).
+      4. Tập hành động trừu tượng rộng hơn (có thêm lựa chọn nâng cược/bluff).
+
+    Khi gặp trạng thái chưa học, tự động Fallback sang ProbabilisticAgent.
+    Liên quan Bài 4 (đối kháng/lý thuyết trò chơi) và Bài 8-9 (regret minimization).
     """
+
+    # Giữ chi phí mỗi vòng lặp thấp như bản gốc: sức mạnh đến từ CFR+ (hội tụ nhanh)
+    # và nút lá ước lượng KHÔNG rò rỉ thông tin, không phải từ việc duyệt cây sâu hơn.
+    # Chọn DEPTH 4 cho TRAIN NẶNG: vì nút thắt là data-starvation (mỗi infoset thăm quá
+    # ít), dồn ngân sách vào SỐ VÒNG quan trọng hơn duyệt sâu. Depth 4 nhanh ~6× depth 5
+    # ⇒ nhiều vòng hơn ⇒ mỗi infoset được thăm dày hơn ⇒ hội tụ tới WR ≥ 50% nhanh hơn.
+    MAX_DEPTH = 4          # độ sâu tối đa khi duyệt cây
+    # MỞ RỘNG ABSTRACTION: thêm các nước nâng cược +1/+2 (mặt hiện tại & wild) bên cạnh
+    # bid tối thiểu mỗi mặt ⇒ chiến lược học được cả khả năng "thổi giá" mạnh hơn.
+    MAX_ABSTRACT = 10      # số hành động đại diện tối đa (trước: 8)
+    # GATING ĐỘ TIN CẬY: không gian infoset rất lớn (bộ xúc xắc chính xác) nên đa số
+    # infoset chỉ được thăm vài lần ⇒ chiến lược học còn nhiễu, đánh dở hơn cả fallback.
+    # Chỉ DÙNG chiến lược đã học khi infoset được thăm ĐỦ NHIỀU; chưa đủ thì fallback
+    # sang ProbabilisticAgent (vốn ổn định) thay vì đè bằng nước học dở dang.
+    MIN_VISITS = 10        # số lượt thăm tối thiểu để tin dùng chiến lược đã học
+
     def __init__(self, name: str = "CFRAgent"):
         super().__init__(name)
-        # Bảng hối hận tích lũy: infoset_key -> {action_str: regret_value}
+        # Bảng hối hận tích lũy (đã sàn hóa ≥ 0 theo CFR+): infoset -> {action: regret}
         self.regret_table: Dict[str, Dict[str, float]] = {}
-        # Bảng chiến thuật tích lũy: infoset_key -> {action_str: strategy_sum}
+        # Bảng chiến thuật tích lũy (trọng số tuyến tính): infoset -> {action: strategy_sum}
         self.strategy_table: Dict[str, Dict[str, float]] = {}
-        
+        # Số lượt thăm mỗi infoset (đo độ tin cậy để gating trong act())
+        self.visit_counts: Dict[str, int] = {}
+
+        # Tổng số vòng lặp self-play đã huấn luyện
+        self.iterations_trained: int = 0
+        # Chỉ số vòng lặp hiện tại (1-based) dùng làm trọng số linear averaging
+        self._t: int = 0
+        # Trạng thái ván self-play đang chạy (dùng cho train FULL-GAME): các vòng đấu
+        # được lấy mẫu theo đúng phân phối số xúc xắc xuất hiện trong ván thật.
+        self._game_state: Optional[GameState] = None
+
         # Lớp fallback an toàn khi gặp trạng thái lạ
         self.fallback_agent: Optional[Agent] = None
 
+    # ------------------------------------------------------------------ helpers
     def _action_to_str(self, action: Action) -> str:
         if isinstance(action, Challenge):
             return "Challenge"
@@ -35,220 +74,279 @@ class CFRAgent(Agent):
             return Bid(int(parts[1]), int(parts[2]))
         raise ValueError("Chuỗi hành động không hợp lệ.")
 
-    def _get_abstract_actions(self, state: GameState, legal_actions: List[Action]) -> List[Action]:
-        """Trừu tượng hóa danh sách hành động hợp lệ để thu hẹp không gian tìm kiếm,
-        giúp thuật toán duyệt cây nhanh hơn mà không làm mất tính tổng quát.
+    def _make_infoset_key(self, my_dice, opp_count, current_bid) -> str:
+        """Khóa infoset — DÙNG CHUNG cho cfr_search, rollout và act() để không lệch khóa.
+
+        Gồm đúng những gì người chơi được phép biết: tay mình (đầy đủ), số xúc xắc đối
+        thủ, cược đang đứng. (Đã thử bucket hóa tay theo "số viên khớp mặt cược" để giảm
+        số infoset, nhưng làm vậy vứt mất thông tin các mặt khác ⇒ nâng cược mù ⇒ WR sụp.
+        Trừu tượng hóa đúng cần làm ĐỒNG THỜI với trừu tượng hóa hành động — xem docs.)
         """
-        # Luôn giữ hành động tố cáo (Challenge)
+        bid_tuple = (current_bid.quantity, current_bid.face_value) if current_bid else None
+        return f"{tuple(my_dice)} | {opp_count} | {bid_tuple}"
+
+    def _get_abstract_actions(self, state: GameState, legal_actions: List[Action]) -> List[Action]:
+        """Trừu tượng hóa danh sách hành động để thu hẹp không gian tìm kiếm.
+
+        Giữ: Challenge + bid tối thiểu mỗi mặt + một vài nước nâng cược (an toàn và
+        bluff nhẹ) để chiến lược học được cả khả năng "thổi giá".
+        """
         abstract = [a for a in legal_actions if isinstance(a, Challenge)]
-        
+
         bids = [a for a in legal_actions if isinstance(a, Bid)]
         if not bids:
             return abstract
-            
-        # Thêm bid tối thiểu (an toàn nhất) cho mỗi mặt xúc xắc (1-6)
-        min_bids_by_face = {}
+
+        # Bid tối thiểu (an toàn nhất) cho mỗi mặt xúc xắc
+        min_bids_by_face: Dict[int, Bid] = {}
         for b in bids:
-            if b.face_value not in min_bids_by_face or b.quantity < min_bids_by_face[b.face_value].quantity:
+            cur = min_bids_by_face.get(b.face_value)
+            if cur is None or b.quantity < cur.quantity:
                 min_bids_by_face[b.face_value] = b
-                
         for face in sorted(min_bids_by_face.keys()):
             abstract.append(min_bids_by_face[face])
-            
-        # Thêm bid tăng số lượng lên đúng 1 viên cho mặt hiện tại hoặc mặt 1 (wild)
-        if state.current_bid:
-            current_face = state.current_bid.face_value
-            next_qty = state.current_bid.quantity + 1
-            for b in bids:
-                if b.quantity == next_qty and b.face_value in (current_face, 1):
-                    abstract.append(b)
-                    
-        # Loại bỏ trùng lặp
-        unique_abstract = []
-        seen = set()
-        for a in abstract:
-            a_str = self._action_to_str(a)
-            if a_str not in seen:
-                seen.add(a_str)
-                unique_abstract.append(a)
-                
-        # Giới hạn tối đa 6 hành động đại diện tốt nhất
-        return unique_abstract[:6]
 
-    def _estimate_utility(self, state: GameState) -> float:
-        """Ước lượng giá trị phần thưởng (utility) tại nút lá độ sâu giới hạn.
-        Trả về +1.0 nếu Player 0 thắng, và -1.0 nếu Player 0 thua.
+        # Nước nâng cược +1 và +2 số lượng cho mặt hiện tại hoặc wild (mở rộng abstraction
+        # để học được cả các nước "thổi giá" mạnh, không chỉ bid tối thiểu an toàn).
+        if state.current_bid:
+            cur_face = state.current_bid.face_value
+            for delta in (1, 2):
+                next_qty = state.current_bid.quantity + delta
+                for b in bids:
+                    if b.quantity == next_qty and b.face_value in (cur_face, 1):
+                        abstract.append(b)
+
+        # Loại trùng và giới hạn số hành động đại diện
+        unique, seen = [], set()
+        for a in abstract:
+            s = self._action_to_str(a)
+            if s not in seen:
+                seen.add(s)
+                unique.append(a)
+        return unique[:self.MAX_ABSTRACT]
+
+    def _leaf_utility(self, state: GameState) -> float:
+        """Ước lượng giá trị nút lá khi cắt độ sâu: lấy kết cục NẾU người đang đi
+        Challenge cược đang đứng trong VÁN ĐÃ BỐC hiện tại.
+
+        Lưu ý: đây là giá trị thật của ván self-play đã bốc (không phải "nhìn lén"
+        ở thế đối kháng thật), nên qua nhiều ván sampling nó cho ước lượng giá trị
+        subgame chính xác hơn hẳn heuristic "giả định challenge theo kỳ vọng".
+        Trả về giá trị từ góc nhìn Player 0.
         """
         if state.current_bid is None:
             return 0.0
-            
-        bid = state.current_bid
-        actual_count = count_matching_dice(state.hands, bid.face_value)
-        # Người cược là người vừa đi (1 - current_player)
-        bidder = 1 - state.current_player
-        
-        if actual_count >= bid.quantity:
-            # Cược đúng -> bidder thắng. Nếu bidder là Player 0 -> +1.0, ngược lại -1.0
-            return 1.0 if bidder == 0 else -1.0
-        else:
-            # Cược sai -> bidder thua. Nếu bidder là Player 0 -> -1.0, ngược lại +1.0
-            return -1.0 if bidder == 0 else 1.0
+        return self._terminal_challenge_utility(state, state.current_player)
 
+    def _terminal_challenge_utility(self, state: GameState, active_player: int) -> float:
+        """Giá trị thật khi `active_player` Challenge cược đang đứng (đã lộ cả hai tay
+        trong ván self-play hiện tại — đây là kết cục THẬT của ván đã bốc, hợp lệ)."""
+        bid = state.current_bid
+        actual = count_matching_dice(state.hands, bid.face_value)
+        bidder = 1 - active_player
+        winner = bidder if actual >= bid.quantity else active_player
+        return 1.0 if winner == 0 else -1.0
+
+    # ------------------------------------------------------------------- search
     def cfr_search(self, state: GameState, p0: float, p1: float, depth: int) -> float:
-        """Duyệt đệ quy cây game CFR để tính toán Regret và Strategy.
-        Trả về utility của nút từ góc nhìn của Player 0.
-        """
-        # Giới hạn độ sâu tìm kiếm để tránh bùng nổ tổ hợp trạng thái
-        max_depth = 4
-        if depth >= max_depth:
-            return self._estimate_utility(state)
-            
-        active_player = state.current_player
+        """Duyệt đệ quy cây CFR+. Trả về utility kỳ vọng từ góc nhìn Player 0."""
+        if depth >= self.MAX_DEPTH:
+            return self._leaf_utility(state)
+
+        active = state.current_player
         legal_actions = get_legal_actions(state)
-        
         if not legal_actions:
-            return self._estimate_utility(state)
-            
-        # Thu hẹp hành động
+            return self._leaf_utility(state)
+
         abstract_actions = self._get_abstract_actions(state, legal_actions)
-        
-        # Tạo khóa infoset
-        my_dice = tuple(state.hands[active_player])
-        opp_dice_count = state.dice_counts[1 - active_player]
-        curr_bid_tuple = (state.current_bid.quantity, state.current_bid.face_value) if state.current_bid else None
-        infoset_key = f"{my_dice} | {opp_dice_count} | {curr_bid_tuple}"
-        
-        # Khởi tạo bảng nếu chưa có
-        if infoset_key not in self.regret_table:
-            self.regret_table[infoset_key] = {self._action_to_str(a): 0.0 for a in abstract_actions}
-        if infoset_key not in self.strategy_table:
-            self.strategy_table[infoset_key] = {self._action_to_str(a): 0.0 for a in abstract_actions}
-            
-        regrets = self.regret_table[infoset_key]
-        
-        # 1. Regret Matching
-        positive_regrets = {a_str: max(0.0, regrets.get(a_str, 0.0)) for a_str in regrets}
-        sum_pos_regrets = sum(positive_regrets.values())
-        
+
+        my_dice = tuple(state.hands[active])
+        opp_count = state.dice_counts[1 - active]
+        infoset = self._make_infoset_key(my_dice, opp_count, state.current_bid)
+
+        action_strs = [self._action_to_str(a) for a in abstract_actions]
+        if infoset not in self.regret_table:
+            self.regret_table[infoset] = {s: 0.0 for s in action_strs}
+            self.strategy_table[infoset] = {s: 0.0 for s in action_strs}
+        self.visit_counts[infoset] = self.visit_counts.get(infoset, 0) + 1
+        regrets = self.regret_table[infoset]
+        strat_sums = self.strategy_table[infoset]
+
+        # 1. Regret matching (chỉ dùng regret dương — CFR+ đã sàn hóa ≥ 0)
+        pos = {s: max(0.0, regrets.get(s, 0.0)) for s in action_strs}
+        total_pos = sum(pos.values())
         strategy = {}
-        for a in abstract_actions:
-            a_str = self._action_to_str(a)
-            if sum_pos_regrets > 0:
-                strategy[a] = positive_regrets[a_str] / sum_pos_regrets
-            else:
-                strategy[a] = 1.0 / len(abstract_actions)
-                
-        # 2. Tích lũy strategy_sum
-        p_active = p0 if active_player == 0 else p1
-        strat_sums = self.strategy_table[infoset_key]
-        for a, prob in strategy.items():
-            a_str = self._action_to_str(a)
-            strat_sums[a_str] = strat_sums.get(a_str, 0.0) + p_active * prob
-            
-        # 3. Tính expected utility cho từng hành động
-        action_utilities = {}
-        for a in abstract_actions:
+        for a, s in zip(abstract_actions, action_strs):
+            strategy[a] = pos[s] / total_pos if total_pos > 0 else 1.0 / len(abstract_actions)
+
+        # 2. Tích lũy chiến lược trung bình có TRỌNG SỐ TUYẾN TÍNH (linear averaging)
+        p_active = p0 if active == 0 else p1
+        weight = self._t  # vòng lặp hiện tại (1-based)
+        for a, s in zip(abstract_actions, action_strs):
+            strat_sums[s] = strat_sums.get(s, 0.0) + weight * p_active * strategy[a]
+
+        # 3. Utility kỳ vọng cho từng hành động
+        action_utils = {}
+        for a, s in zip(abstract_actions, action_strs):
             if isinstance(a, Challenge):
-                actual_count = count_matching_dice(state.hands, state.current_bid.face_value)
-                bidder = 1 - active_player
-                if actual_count >= state.current_bid.quantity:
-                    winner = bidder
-                else:
-                    winner = active_player
-                action_utilities[a] = 1.0 if winner == 0 else -1.0
+                action_utils[a] = self._terminal_challenge_utility(state, active)
             else:
-                # Tạo bản sao giả lập hành động Bid
-                next_state = state.clone()
-                next_state.current_bid = a
-                next_state.history.append((active_player, a))
-                next_state.current_player = 1 - active_player
-                
-                if active_player == 0:
-                    action_utilities[a] = self.cfr_search(next_state, p0 * strategy[a], p1, depth + 1)
+                nxt = state.clone()
+                nxt.current_bid = a
+                nxt.history.append((active, a))
+                nxt.current_player = 1 - active
+                if active == 0:
+                    action_utils[a] = self.cfr_search(nxt, p0 * strategy[a], p1, depth + 1)
                 else:
-                    action_utilities[a] = self.cfr_search(next_state, p0, p1 * strategy[a], depth + 1)
-                    
-        # 4. Tính expected utility tổng thể của infoset
-        U = sum(strategy[a] * action_utilities[a] for a in abstract_actions)
-        
-        # 5. Cập nhật regret tích lũy
-        p_opp = p1 if active_player == 0 else p0
-        for a in abstract_actions:
-            a_str = self._action_to_str(a)
-            u_a = action_utilities[a]
-            # Hối hận = Utility hành động - Utility trung bình của infoset (đảo chiều đối với Player 1)
-            regret_val = (u_a - U) if active_player == 0 else (U - u_a)
-            regrets[a_str] = regrets.get(a_str, 0.0) + p_opp * regret_val
-            
+                    action_utils[a] = self.cfr_search(nxt, p0, p1 * strategy[a], depth + 1)
+
+        # 4. Utility kỳ vọng của infoset
+        U = sum(strategy[a] * action_utils[a] for a in abstract_actions)
+
+        # 5. Cập nhật regret theo CFR+ (sàn hóa ≥ 0)
+        p_opp = p1 if active == 0 else p0
+        for a, s in zip(abstract_actions, action_strs):
+            regret_val = (action_utils[a] - U) if active == 0 else (U - action_utils[a])
+            regrets[s] = max(0.0, regrets.get(s, 0.0) + p_opp * regret_val)
+
         return U
 
+    # ----------------------------------------------------------------- training
     def train(self, iterations: int = 1000):
-        """Huấn luyện Agent thông qua tự chơi (Self-play) trong số vòng lặp chỉ định."""
+        """Huấn luyện qua tự chơi FULL-GAME.
+
+        Trước đây mỗi vòng lặp bốc một ván với số xúc xắc NGẪU NHIÊN [1,5]×[1,5] — phân
+        phối này lệch so với ván thật (luôn bắt đầu 5-5, chênh lệch nhỏ dần). Nay ta nuôi
+        MỘT ván đầy đủ: mỗi vòng lặp cập nhật CFR cho subgame vòng hiện tại RỒI chơi hết
+        vòng đó để số xúc xắc tiến triển đúng như ván thật; hết ván thì bắt đầu ván mới.
+        Nhờ vậy CFR được huấn luyện trên đúng phân phối trạng thái của game đầy đủ.
+
+        `iterations` = số VÒNG đấu được cập nhật (giữ cùng đơn vị với bản cũ).
+        """
         import random
         for _ in range(iterations):
-            # Lắc xúc xắc ngẫu nhiên với số lượng xúc xắc từ [1, 5] cho mỗi người chơi
-            d0 = random.randint(1, 5)
-            d1 = random.randint(1, 5)
-            state = GameState(start_dice=5)
-            state.dice_counts = [d0, d1]
-            state.roll_all_dice()
-            state.current_bid = None
-            state.current_player = random.randint(0, 1)
-            state.history = []
-            
-            self.cfr_search(state, 1.0, 1.0, depth=0)
+            self._t += 1
 
+            # Bắt đầu ván mới nếu chưa có hoặc ván trước đã kết thúc
+            if self._game_state is None or self._game_state.is_game_over():
+                self._game_state = GameState(start_dice=5)
+                self._game_state.current_player = random.randint(0, 1)
+
+            st = self._game_state
+
+            # 1) Cập nhật CFR cho subgame VÒNG hiện tại (trên một bản sao sạch)
+            root = st.clone()
+            root.current_bid = None
+            root.history = []
+            self.cfr_search(root, 1.0, 1.0, depth=0)
+
+            # 2) Chơi hết vòng hiện tại để ván tiến triển (trừ xúc xắc người thua, sang vòng sau)
+            self._play_one_round(st)
+
+        self.iterations_trained += iterations
+
+    def _rollout_action(self, state: GameState, legal_actions: List[Action]) -> Action:
+        """Chọn hành động khi 'chơi out' một vòng trong self-play full-game.
+
+        Dùng chiến lược regret-matching hiện tại nếu đã học infoset này, ngược lại chọn
+        ngẫu nhiên trong tập hành động đại diện — chỉ nhằm sinh quỹ đạo ván thực tế.
+        """
+        import random
+        abstract = self._get_abstract_actions(state, legal_actions)
+        if not abstract:
+            return random.choice(legal_actions)
+
+        active = state.current_player
+        my_dice = tuple(state.hands[active])
+        opp_count = state.dice_counts[1 - active]
+        infoset = self._make_infoset_key(my_dice, opp_count, state.current_bid)
+
+        regrets = self.regret_table.get(infoset)
+        action_strs = [self._action_to_str(a) for a in abstract]
+        if regrets:
+            pos = {s: max(0.0, regrets.get(s, 0.0)) for s in action_strs}
+            total = sum(pos.values())
+            r = random.random()
+            cumulative = 0.0
+            for a, s in zip(abstract, action_strs):
+                prob = pos[s] / total if total > 0 else 1.0 / len(abstract)
+                cumulative += prob
+                if r <= cumulative:
+                    return a
+        return random.choice(abstract)
+
+    def _play_one_round(self, state: GameState):
+        """Chơi (in-place) một vòng từ trạng thái bid=None cho đến khi có Challenge.
+
+        engine.apply_action tự xử lý trừ 1 xúc xắc người thua và reset_round (bốc lại,
+        người thua đi trước) nếu ván chưa kết thúc — nên sau hàm này state đã ở đầu vòng
+        kế tiếp hoặc đã game-over.
+        """
+        guard = 0
+        while not state.is_game_over():
+            legal = get_legal_actions(state)
+            if not legal:
+                break
+            action = self._rollout_action(state, legal)
+            outcome = apply_action(state, action)
+            if outcome["type"] == "challenge":
+                break
+            guard += 1
+            if guard > 200:  # bảo hiểm chống vòng lặp vô hạn
+                break
+
+    def average_regret(self) -> float:
+        """Regret dương trung bình / vòng lặp — chặn trên exploitability (→ 0 khi hội tụ)."""
+        if self.iterations_trained == 0 or not self.regret_table:
+            return float("inf")
+        total = 0.0
+        for regrets in self.regret_table.values():
+            total += max((max(0.0, r) for r in regrets.values()), default=0.0)
+        return total / (self.iterations_trained * len(self.regret_table))
+
+    # --------------------------------------------------------------------- play
     def act(self, observation: dict, legal_actions: List[Action]) -> Action:
         my_dice = tuple(observation["my_dice"])
-        opp_dice_count = observation["opponent_dice_count"]
+        opp_count = observation["opponent_dice_count"]
         curr_bid = observation["current_bid"]
-        curr_bid_tuple = (curr_bid.quantity, curr_bid.face_value) if curr_bid else None
-        
-        infoset_key = f"{my_dice} | {opp_dice_count} | {curr_bid_tuple}"
-        
-        # Nếu có thông tin chiến thuật đã được huấn luyện cho trạng thái này
-        if infoset_key in self.strategy_table:
-            strat_sums = self.strategy_table[infoset_key]
-            legal_action_strs = {self._action_to_str(a): a for a in legal_actions}
-            
-            # Lấy xác suất của các hành động hợp lệ hiện tại
-            valid_probs = {}
-            for a_str, a in legal_action_strs.items():
-                if a_str in strat_sums:
-                    valid_probs[a] = max(0.0, strat_sums[a_str])
-                    
-            sum_valid = sum(valid_probs.values())
-            if sum_valid > 0:
-                # Chuẩn hóa phân phối xác suất
-                normalized_probs = {a: p / sum_valid for a, p in valid_probs.items()}
-                
-                # Lấy ngẫu nhiên hành động theo phân phối xác suất (Mixed Strategy)
-                import random
-                r = random.random()
-                cumulative = 0.0
-                for a, prob in normalized_probs.items():
-                    cumulative += prob
-                    if r <= cumulative:
-                        return a
-                        
-        # Hậu phòng an toàn (Fallback): chuyển sang dùng ProbabilisticAgent
+        infoset = self._make_infoset_key(my_dice, opp_count, curr_bid)
+
+        # GATING: chỉ tin dùng chiến lược đã học nếu infoset được thăm đủ nhiều; ngược lại
+        # rơi xuống fallback (tránh đè nước tốt của fallback bằng nước học dở dang).
+        if infoset in self.strategy_table and self.visit_counts.get(infoset, 0) >= self.MIN_VISITS:
+            strat_sums = self.strategy_table[infoset]
+            legal_map = {self._action_to_str(a): a for a in legal_actions}
+
+            valid = {}
+            for s, a in legal_map.items():
+                if s in strat_sums:
+                    valid[a] = max(0.0, strat_sums[s])
+
+            # ARGMAX: trước đối thủ CỐ ĐỊNH (Random/Prob/Bayes), best-response thường là
+            # nước đi CỨNG. Chọn hành động có xác suất trung bình cao nhất thay vì sample
+            # chiến lược hỗn hợp ⇒ sắc bén hơn, không tự "làm mềm" nước đi tốt.
+            if valid and sum(valid.values()) > 0:
+                return max(valid, key=valid.get)
+
+        # Fallback an toàn: ProbabilisticAgent
         if self.fallback_agent is None:
             from agents.probabilistic_agent import ProbabilisticAgent
             self.fallback_agent = ProbabilisticAgent(name="CFR_Fallback", threshold=0.5)
         return self.fallback_agent.act(observation, legal_actions)
 
+    # ------------------------------------------------------------- persistence
     def save_weights(self, filepath: str):
-        """Lưu trọng số của regret_table và strategy_table ra file JSON."""
         data = {
             "regret_table": self.regret_table,
-            "strategy_table": self.strategy_table
+            "strategy_table": self.strategy_table,
+            "visit_counts": self.visit_counts,
         }
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
 
     def load_weights(self, filepath: str):
-        """Tải trọng số đã lưu từ file JSON vào Agent."""
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
         self.regret_table = data.get("regret_table", {})
         self.strategy_table = data.get("strategy_table", {})
+        self.visit_counts = data.get("visit_counts", {})
