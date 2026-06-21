@@ -1,5 +1,7 @@
 import math
+import functools
 
+@functools.lru_cache(maxsize=None)
 def binomial_probability(k: int, n: int, p: float) -> float:
     """Tính xác suất tích lũy P(X >= k) trong phân phối nhị thức B(n, p).
     Được dùng để tính xác suất đối thủ có ít nhất k viên xúc xắc có mặt cược f 

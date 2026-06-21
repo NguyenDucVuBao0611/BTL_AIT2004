@@ -55,6 +55,20 @@ def run_tournament(num_games=30):
         BayesianAgent("BayesianAgent"),
         agent_cfr
     ]
+
+    def create_fresh_agent(agent_name):
+        if agent_name == "RandomAgent":
+            return RandomAgent("RandomAgent")
+        elif agent_name == "ProbabilisticAgent":
+            return ProbabilisticAgent("ProbabilisticAgent", threshold=0.5)
+        elif agent_name == "BayesianAgent":
+            return BayesianAgent("BayesianAgent")
+        elif agent_name == "CFRAgent":
+            new_cfr = CFRAgent("CFRAgent")
+            new_cfr.regret_table = agent_cfr.regret_table
+            new_cfr.strategy_table = agent_cfr.strategy_table
+            return new_cfr
+        raise ValueError(f"Unknown agent: {agent_name}")
     
     # Ma trận kết quả: win_matrix[player][opponent] = số trận player thắng opponent
     win_matrix = {a.name: {opp.name: 0 for opp in agents} for a in agents}
@@ -70,8 +84,10 @@ def run_tournament(num_games=30):
             
             a1_wins = 0
             for _ in range(num_games):
-                # Tạo referee và chạy đấu tắt verbose
-                ref = Referee(a1, a2, start_dice=5, verbose=False)
+                # Tạo mới instance cho mỗi trận đấu để tránh lỗi "ám trạng thái" (State Bleeding)
+                fresh_a1 = create_fresh_agent(a1.name)
+                fresh_a2 = create_fresh_agent(a2.name)
+                ref = Referee(fresh_a1, fresh_a2, start_dice=5, verbose=False)
                 winner_id = ref.play_game()
                 if winner_id == 0:
                     a1_wins += 1
