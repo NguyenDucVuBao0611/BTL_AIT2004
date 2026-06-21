@@ -328,10 +328,10 @@ class CFRAgent(Agent):
             if valid and sum(valid.values()) > 0:
                 return max(valid, key=valid.get)
 
-        # Fallback an toàn: ProbabilisticAgent
+        # Fallback an toàn: BayesianAgent (lai CFR + Bayes)
         if self.fallback_agent is None:
-            from agents.probabilistic_agent import ProbabilisticAgent
-            self.fallback_agent = ProbabilisticAgent(name="CFR_Fallback", threshold=0.5)
+            from agents.bayesian_agent import BayesianAgent
+            self.fallback_agent = BayesianAgent(name="CFR_Bayes_Fallback")
         return self.fallback_agent.act(observation, legal_actions)
 
     # ------------------------------------------------------------- persistence
