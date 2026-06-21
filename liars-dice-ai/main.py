@@ -17,6 +17,25 @@ from agents.probabilistic_agent import ProbabilisticAgent
 from agents.bayesian_agent import BayesianAgent
 from agents.cfr_agent import CFRAgent
 
+# Weights CFR đã huấn luyện nặng (mạnh, thắng Prob/Bayes). File ~51MB nên KHÔNG commit
+# (xem .gitignore); nếu có sẵn cục bộ thì nạp luôn, không có thì train từ đầu (fallback).
+CFR_WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "experiments", "cfr_heavy.weights.json")
+
+
+def make_cfr_agent(name="CFRAgent", train_iters=40000):
+    """Tạo CFRAgent mạnh: NẠP weights đã huấn luyện nếu có sẵn, ngược lại tự train."""
+    agent = CFRAgent(name)
+    if os.path.exists(CFR_WEIGHTS_PATH):
+        agent.load_weights(CFR_WEIGHTS_PATH)
+        print(f"Đã nạp CFR weights ({len(agent.strategy_table)} trạng thái) từ "
+              f"{os.path.relpath(CFR_WEIGHTS_PATH)} — bỏ qua huấn luyện.")
+    else:
+        print(f"Không thấy weights sẵn, huấn luyện CFR {train_iters} vòng self-play...")
+        agent.train(train_iters)
+        print(f"Hoàn tất huấn luyện! Đã học {len(agent.strategy_table)} trạng thái.")
+    return agent
+
 def run_demo():
     print("\n" + "=" * 50)
     print("PHẦN 1: CHẠY DEMO CÁC TRẬN ĐẤU CÓ CHI TIẾT LOG (VERBOSE)")
@@ -44,11 +63,8 @@ def run_tournament(num_games=30, seed=0, make_plots=True, cfr_iters=40000):
     print("=" * 50)
     from evaluation.tournament import run_tournament as _run, print_win_matrix
 
-    # 1. Khởi tạo CFR Agent và huấn luyện qua tự chơi (CFR+ cần nhiều vòng để mạnh)
-    print(f"Đang huấn luyện CFR Agent bằng Self-play ({cfr_iters} iterations)...")
-    agent_cfr = CFRAgent("CFRAgent")
-    agent_cfr.train(cfr_iters)
-    print(f"Hoàn tất huấn luyện! Đã học được {len(agent_cfr.strategy_table)} trạng thái.")
+    # 1. Khởi tạo CFR Agent: nạp weights mạnh nếu có, ngược lại train (CFR+ cần nhiều vòng)
+    agent_cfr = make_cfr_agent("CFRAgent", train_iters=cfr_iters)
 
     agents = [
         RandomAgent("RandomAgent"),
@@ -102,10 +118,8 @@ def make_agent(name):
     if key in ("bayes", "bayesian"):
         return BayesianAgent("BayesianAgent")
     if key == "cfr":
-        agent = CFRAgent("CFRAgent")
-        print("Đang huấn luyện nhanh CFR (1000 ván self-play)...")
-        agent.train(1000)
-        return agent
+        # Nạp weights mạnh nếu có; nếu không, train nhanh 1000 vòng làm fallback
+        return make_cfr_agent("CFRAgent", train_iters=1000)
     raise ValueError(f"Agent không hợp lệ: {name}")
 
 

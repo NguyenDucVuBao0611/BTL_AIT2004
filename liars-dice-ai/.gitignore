@@ -7,3 +7,7 @@ results/*.png
 results/*.csv
 .vscode/
 .idea/
+
+# Script kiểm tra winrate cục bộ (không track)
+experiments/
+*.weights.json
