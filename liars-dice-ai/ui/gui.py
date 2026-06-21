@@ -476,4 +476,9 @@ def _smoke_test():
 
 
 if __name__ == "__main__":
-    _smoke_test()
+    import sys
+    import os
+    # Cấu hình đường dẫn để có thể chạy trực tiếp file gui.py từ Editor/IDE
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+    from agents.bayesian_agent import BayesianAgent
+    play_gui(BayesianAgent("BayesianAgent"))
