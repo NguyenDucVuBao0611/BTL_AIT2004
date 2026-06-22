@@ -111,9 +111,10 @@ def run_exploit(total_iterations=20000, step=2000, eval_games=200, seed=0, make_
 
     if make_plots:
         try:
-            from evaluation.plots import plot_convergence
+            from evaluation.plots import plot_convergence, plot_infoset_growth
             p = plot_convergence(history)
-            print(f"Đã lưu biểu đồ hội tụ: {p}")
+            p2 = plot_infoset_growth(history)
+            print(f"Đã lưu biểu đồ hội tụ: {p}, {p2}")
         except Exception as e:  # pragma: no cover
             print(f"(Bỏ qua vẽ biểu đồ: {e})")
 

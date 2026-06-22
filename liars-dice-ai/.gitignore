@@ -3,7 +3,7 @@ __pycache__/
 *.pyo
 .pytest_cache/
 logs/
-results/*.png
+# Biểu đồ kết quả (results/*.png) ĐƯỢC commit để báo cáo hiển thị hình; chỉ bỏ qua CSV thô.
 results/*.csv
 .vscode/
 .idea/

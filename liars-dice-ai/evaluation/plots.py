@@ -62,6 +62,37 @@ def plot_overall_winrate(result: Dict, path: str = "results/agent_stats.png") ->
     return path
 
 
+def plot_infoset_growth(history: Dict, path: str = "results/cfr_infoset_growth.png") -> str:
+    """Vẽ số infoset tích luỹ theo số vòng lặp self-play.
+
+    Minh hoạ trực quan nút thắt DATA-STARVATION: không gian infoset tăng gần tuyến tính (khoá
+    bằng bộ xúc xắc chính xác) trong khi ngân sách huấn luyện hữu hạn ⇒ mỗi infoset chỉ được
+    thăm vài lần ⇒ chiến lược học chậm hội tụ. (Xem §4.2, §5.2 của báo cáo.)
+    """
+    _ensure_dir(path)
+    iters = history["iterations"]
+    n_infoset = history.get("n_infoset")
+    if not n_infoset:
+        raise ValueError("history thiếu khoá 'n_infoset' — cần đo lại với phiên bản mới.")
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    ax.plot(iters, n_infoset, marker="o", color="darkorange")
+    ax.set_xlabel("Số vòng lặp self-play")
+    ax.set_ylabel("Số infoset đã gặp (tích luỹ)")
+    ax.set_title("Tăng trưởng không gian infoset (nút thắt data-starvation)")
+    ax.grid(True, alpha=0.3)
+    # Chú thích số trung bình lượt thăm/infoset ở mốc cuối để nhấn ý data-starvation.
+    if iters and n_infoset[-1] > 0:
+        avg_visits = iters[-1] / n_infoset[-1]
+        ax.annotate(f"≈ {avg_visits:.2f} lượt thăm / infoset ở {iters[-1]} vòng",
+                    xy=(iters[-1], n_infoset[-1]), xytext=(0.05, 0.9),
+                    textcoords="axes fraction", color="dimgray")
+    fig.tight_layout()
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+    return path
+
+
 def plot_convergence(history: Dict, path: str = "results/cfr_convergence.png") -> str:
     """Vẽ đường hội tụ CFR: regret trung bình (↓) và win-rate vs Probabilistic."""
     _ensure_dir(path)
