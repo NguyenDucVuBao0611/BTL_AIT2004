@@ -59,16 +59,19 @@ tests/     unit test engine + agents (pytest)
 
 ```mermaid
 flowchart LR
-    R[Referee<br/>vòng lặp đấu] -->|get_observation pid| OBS[Observation<br/>tay mình + #xúc xắc đối thủ]
-    R -->|get_legal_actions| LA[Legal actions<br/>Bid / Challenge]
-    OBS --> AG[Agent.act]
-    LA --> AG
-    AG -->|Action| ENG[engine.apply_action]
-    ENG -->|cập nhật| GS[GameState<br/>hands, bid, dice_counts]
-    ENG -->|outcome| R
-    AG -.->|observe| AG
-    GS -->|is_game_over?| R
+    R[Referee<br/>vòng lặp đấu]
+    AG[Agent.act<br/>chọn nước đi]
+    ENG[engine.apply_action<br/>luật + outcome]
+    GS[GameState<br/>hands · bid · dice_counts]
+
+    R -->|quan sát + nước hợp lệ| AG
+    AG -->|Action| ENG
+    ENG -->|cập nhật| GS
+    GS -->|outcome / is_game_over?| R
 ```
+
+Mỗi agent còn nhận `observe(action, acting_player)` sau **mọi** nước đi (của bất kỳ ai) để
+cập nhật niềm tin — Bayesian/CFR dùng móc này; xem hợp đồng Agent bên dưới.
 
 Bốn agent (`Random`, `Probabilistic`, `Bayesian`, `CFR`) cùng cài đặt một giao diện
 `Agent` nên có thể thay thế lẫn nhau ở mọi vị trí (giải đấu, demo, chơi vs người).
