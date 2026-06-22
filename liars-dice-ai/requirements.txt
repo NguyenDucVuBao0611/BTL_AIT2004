@@ -1,0 +1,7 @@
+# Phụ thuộc cho dự án Liar's Dice AI
+# Cài đặt:  pip install -r requirements.txt
+
+matplotlib>=3.5      # biểu đồ win-matrix, win-rate, đường hội tụ CFR (evaluation/plots.py)
+pygame>=2.1          # giao diện đồ họa người-vs-AI (ui/gui.py) — tùy chọn
+rich>=12.0           # giao diện CLI đẹp cho chế độ chơi người-vs-AI (ui/cli.py) — tùy chọn
+pytest>=7.0          # chạy bộ unit test (tests/)

@@ -5,8 +5,14 @@ from game.engine import count_matching_dice
 from core.probability import binomial_probability
 
 class ProbabilisticAgent(Agent):
-    """Agent sử dụng xác suất tích lũy (Expectimax Search Model - Chance Nodes) 
-    để đưa ra quyết định Challenge hoặc nâng cược tối ưu kỳ vọng.
+    """Agent kỳ vọng tham lam 1 bước (greedy 1-step expectation), KHÔNG phải
+    expectimax đầy đủ: không khai triển cây tìm kiếm.
+
+    Cơ chế: dùng phân phối nhị thức tích lũy để ước lượng P(đối thủ nói thật)
+    cho cược hiện tại (mặt 1 wild → p=1/3 cho mặt khác, 1/6 cho mặt 1). Nếu
+    P(thật) < ngưỡng cố định thì Challenge; ngược lại nâng cược an toàn nhất
+    (số lượng nhỏ nhất của mặt mình giữ nhiều nhất). Liên quan Bài 5 (bất định,
+    chance node) và Bài 16-17 (suy luận xác suất).
     """
     def __init__(self, name: str = "ProbabilisticAgent", threshold: float = 0.5):
         super().__init__(name)
