@@ -1,4 +1,5 @@
 import json
+import gzip
 from typing import List, Dict, Optional
 from agents.base_agent import Agent
 from game.actions import Action, Bid, Challenge
@@ -341,11 +342,15 @@ class CFRAgent(Agent):
             "strategy_table": self.strategy_table,
             "visit_counts": self.visit_counts,
         }
-        with open(filepath, "w", encoding="utf-8") as f:
+        # File .gz được nén gzip (nhỏ ~7× ⇒ commit được); ngược lại ghi JSON thường.
+        opener = gzip.open if filepath.endswith(".gz") else open
+        with opener(filepath, "wt", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
 
     def load_weights(self, filepath: str):
-        with open(filepath, "r", encoding="utf-8") as f:
+        # Tự nhận diện file nén gzip qua đuôi .gz để nạp được cả bản nén lẫn bản thường.
+        opener = gzip.open if filepath.endswith(".gz") else open
+        with opener(filepath, "rt", encoding="utf-8") as f:
             data = json.load(f)
         self.regret_table = data.get("regret_table", {})
         self.strategy_table = data.get("strategy_table", {})
