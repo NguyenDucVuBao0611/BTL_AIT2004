@@ -8,6 +8,9 @@ results/*.csv
 .vscode/
 .idea/
 
-# Script kiểm tra winrate cục bộ (không track)
-experiments/
+# Script kiểm tra winrate cục bộ (không track) — bỏ qua mọi thứ trong experiments/
+experiments/*
+# ...NHƯNG vẫn commit bản weights CFR đã nén (~7MB) để clone về chạy CFR mạnh ngay:
+!experiments/cfr_heavy.weights.json.gz
+# Bản weights chưa nén (~51MB) thì không bao giờ track:
 *.weights.json

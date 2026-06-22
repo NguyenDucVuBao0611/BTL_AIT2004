@@ -33,6 +33,11 @@ Chạy test:
 python -m pytest -q
 ```
 
+> 💡 **Weights CFR đã train sẵn:** bản nén `experiments/cfr_heavy.weights.json.gz` (~7MB)
+> được commit kèm repo, nên clone về là chơi/đấu với CFR **mạnh** ngay, không cần train lại
+> 40k vòng. `main.py` tự nạp file `.gz` này. Nếu xóa file đi, các mode sẽ tự train fallback
+> (yếu hơn). File `.json` chưa nén (~51MB) không được track (xem `.gitignore`).
+
 ## Các tác tử AI (theo độ khó)
 | Agent | Ý tưởng | Liên quan bài giảng |
 |---|---|---|

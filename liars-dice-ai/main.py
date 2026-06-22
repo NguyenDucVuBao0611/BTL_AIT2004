@@ -17,19 +17,30 @@ from agents.probabilistic_agent import ProbabilisticAgent
 from agents.bayesian_agent import BayesianAgent
 from agents.cfr_agent import CFRAgent
 
-# Weights CFR đã huấn luyện nặng (mạnh, thắng Prob/Bayes). File ~51MB nên KHÔNG commit
-# (xem .gitignore); nếu có sẵn cục bộ thì nạp luôn, không có thì train từ đầu (fallback).
-CFR_WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "experiments", "cfr_heavy.weights.json")
+# Weights CFR đã huấn luyện nặng (mạnh, thắng Prob/Bayes). Bản nén .gz (~7MB) ĐƯỢC commit
+# để ai clone về là chạy được CFR mạnh ngay, khỏi train lại 40k vòng. Ưu tiên nạp bản .gz;
+# nếu có sẵn bản .json chưa nén cục bộ thì cũng dùng được; không có gì thì train (fallback).
+_WEIGHTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "experiments")
+CFR_WEIGHTS_GZ = os.path.join(_WEIGHTS_DIR, "cfr_heavy.weights.json.gz")
+CFR_WEIGHTS_JSON = os.path.join(_WEIGHTS_DIR, "cfr_heavy.weights.json")
+
+
+def _find_cfr_weights():
+    """Trả về đường dẫn weights khả dụng (ưu tiên .gz đã commit), hoặc None nếu không có."""
+    for path in (CFR_WEIGHTS_GZ, CFR_WEIGHTS_JSON):
+        if os.path.exists(path):
+            return path
+    return None
 
 
 def make_cfr_agent(name="CFRAgent", train_iters=40000):
     """Tạo CFRAgent mạnh: NẠP weights đã huấn luyện nếu có sẵn, ngược lại tự train."""
     agent = CFRAgent(name)
-    if os.path.exists(CFR_WEIGHTS_PATH):
-        agent.load_weights(CFR_WEIGHTS_PATH)
+    weights_path = _find_cfr_weights()
+    if weights_path:
+        agent.load_weights(weights_path)
         print(f"Đã nạp CFR weights ({len(agent.strategy_table)} trạng thái) từ "
-              f"{os.path.relpath(CFR_WEIGHTS_PATH)} — bỏ qua huấn luyện.")
+              f"{os.path.relpath(weights_path)} — bỏ qua huấn luyện.")
     else:
         print(f"Không thấy weights sẵn, huấn luyện CFR {train_iters} vòng self-play...")
         agent.train(train_iters)
