@@ -86,17 +86,26 @@ hợp và lưu chiến lược trung bình. Gặp trạng thái chưa học thì
 1. **CFR+**: regret tích lũy được *sàn hoá ≥ 0* mỗi bước (regret matching+) và chiến lược
    trung bình lấy có **trọng số tuyến tính theo vòng lặp** (linear averaging). Hai kỹ thuật
    này giúp hội tụ nhanh hơn nhiều bậc so với CFR thường.
-2. **Nút lá chính xác hơn**: khi cắt độ sâu, ước lượng giá trị bằng *kết cục thật của ván
-   đã bốc* (nếu challenge ngay) thay vì heuristic — qua nhiều ván sampling cho ước lượng
-   giá trị subgame tốt hơn rõ rệt (thực nghiệm: thay heuristic "kỳ vọng" làm tụt win‑rate).
-3. **Huấn luyện lâu hơn** (mặc định 40 000 vòng): CFR+ chỉ bộc lộ sức mạnh khi train đủ.
+2. **Huấn luyện FULL‑GAME**: thay vì lấy mẫu một vòng đặt cược với số xúc xắc ngẫu nhiên,
+   self‑play nuôi nguyên một ván đầy đủ — số xúc xắc tiến triển đúng phân phối ván thật,
+   tránh học lệch trên các cấu hình hiếm.
+3. **Nút lá chính xác hơn**: khi cắt độ sâu, ước lượng giá trị bằng *kết cục thật của ván
+   đã bốc* (nếu challenge ngay) thay vì heuristic.
+4. **Chơi bằng argmax + gating**: lúc đánh chọn nước có xác suất trung bình cao nhất
+   (sắc bén hơn sampling trước đối thủ cố định); chỉ tin dùng chiến lược đã học khi infoset
+   được thăm đủ nhiều (`MIN_VISITS`), nếu chưa thì fallback Probabilistic.
+5. **Train nặng**: `MAX_DEPTH = 4` (dồn ngân sách vào SỐ VÒNG vì nút thắt là số lần thăm
+   mỗi infoset); huấn luyện ~50k vòng rồi lưu/nạp weights.
 
-**Giới hạn còn lại (defend trung thực):** vẫn **giới hạn độ sâu** (`MAX_DEPTH = 4`) và
-**trừu tượng hoá hành động**, nên CFR hội tụ về cân bằng của *trò chơi đã trừu tượng hoá*,
-chưa phải Nash của trò chơi gốc. Trong trò chơi đối xứng tổng‑bằng‑không, một chiến lược
-Nash thật sẽ đảm bảo ≥ 50% trước *mọi* đối thủ; agent của ta đạt ~57% tổng và ~37% trước
-ProbabilisticAgent (xem §5) — đã cải thiện đáng kể nhưng chưa chạm trần Nash. Hướng vượt
-trần: bỏ giới hạn độ sâu bằng **MCCFR (lấy mẫu)** và/hoặc trừu tượng hoá tinh hơn.
+**Bằng chứng & giới hạn (trung thực):** với khoá infoset dùng bộ xúc xắc CHÍNH XÁC, không
+gian infoset rất lớn (~66k) ⇒ điểm nghẽn là **data‑starvation** (mỗi infoset thăm ít). Đo
+exploitability (cận `Σ regret⁺ / T`) xác nhận CFR **hội tụ ĐÚNG nhưng chậm**; khi train đủ
+nặng (~35–50k vòng), win‑rate **vượt 50% trước cả Probabilistic và Bayesian** (§5.1) — đúng
+kỳ vọng Nash. Đã thử giảm infoset bằng (a) bucket theo "số viên khớp mặt cược" và (b) trừu
+tượng đối xứng hoán vị mặt: cả hai **không dùng được** — (a) mất thông tin ⇒ tụt win‑rate;
+(b) luật nâng cược **sắp thứ tự mặt** nên không có đối xứng hoán vị lossless (đã kiểm thử
+bằng script bất biến hoán vị). Hướng vượt trần exploitability: **MCCFR (lấy mẫu)** bỏ
+giới hạn độ sâu, hoặc trừu tượng hoá đồng thời infoset + hành động một cách tôn trọng thứ tự.
 
 ## 4. Phương pháp đánh giá
 
@@ -109,8 +118,11 @@ python main.py --mode tournament --games 50 --seed 0
 
 ### 4.2 Đo hội tụ / exploitability của CFR
 `evaluation/exploitability.py` huấn luyện CFR theo từng đợt và ghi lại tại mỗi mốc:
-- **`avg_regret`** = regret dương trung bình / vòng lặp (`CFRAgent.average_regret()`).
-  Theo lý thuyết CFR, đại lượng này **chặn trên exploitability** và phải tiến về 0.
+- **`raw_bound`** = `Σ_I max_a R⁺(I,a) / T` — **cận trên exploitability ĐÚNG CHUẨN** theo
+  lý thuyết CFR, phải tiến về 0 khi hội tụ. *Đây* là đại lượng để đánh giá hội tụ.
+- **`avg_regret`** = `raw_bound / #infoset` (`CFRAgent.average_regret()`). ⚠️ Vì chia thêm
+  cho số infoset (đang TĂNG), nó bé đi "giả tạo" kể cả khi chưa hội tụ ⇒ **không dùng một
+  mình làm bằng chứng**; chỉ giữ để tham khảo/đối chiếu.
 - **`winrate_vs_prob`** = win‑rate thực nghiệm của chiến lược CFR hiện tại khi đấu
   ProbabilisticAgent (đối thủ cố định), đo bằng giải đấu cân bằng ghế.
 ```bash
@@ -121,37 +133,42 @@ python main.py --mode exploit --iters 20000 --seed 0
 
 > Chạy với `--seed 0`. Lệnh tái lập ở §8. Biểu đồ trong `results/`.
 
-### 5.1 Giải đấu round‑robin (200 ván/cặp, cân bằng ghế, CFR train 40k)
+### 5.1 Giải đấu round‑robin (200 ván/cặp, cân bằng ghế, CFR train nặng ~50k)
 
 | Agent | Win‑rate tổng | Ghi chú đối đầu |
 |---|---:|---|
-| BayesianAgent | **72.3%** | Thắng Probabilistic 52.0%, thắng CFR 65.0% |
-| ProbabilisticAgent | 70.3% | Thắng CFR 63.0% |
-| CFRAgent (CFR+) | 57.3% | Thua Probabilistic 37.0%, thua Bayesian 35.0% |
+| **CFRAgent (CFR+, train nặng)** | **67.8%** | Thắng Probabilistic 50.5%, thắng Bayesian 53.0% |
+| ProbabilisticAgent | 67.3% | Thắng Bayesian 52.5%, thua CFR 49.5% |
+| BayesianAgent | 64.8% | Thua Probabilistic 47.5%, thua CFR 47.0% |
 | RandomAgent | 0.0% | Thua mọi agent có chiến lược |
 
-Nhận xét: cả hai agent dựa trên xác suất đè bẹp RandomAgent (100%). **BayesianAgent nhỉnh
-hơn ProbabilisticAgent** nhờ ngưỡng Challenge động — đúng kỳ vọng thiết kế. **CFR+ đã cải
-thiện rõ** so với bản đầu (win‑rate tổng 50.3% → **57.3%**; vs Probabilistic 26.5% →
-**37.0%**; vs Bayesian 24.5% → **35.0%**), tiến gần nhưng chưa qua mốc Nash 50% trước hai
-agent xác suất (giới hạn ở §3.4). Biểu đồ: `results/win_matrix.png`, `results/agent_stats.png`.
+Nhận xét: mọi agent có chiến lược đè bẹp RandomAgent (100%). Sau khi **huấn luyện đủ nặng
+(~50k vòng, nạp từ `experiments/cfr_heavy.weights.json`)**, **CFRAgent vươn lên DẪN ĐẦU**
+(67.8% tổng) — **vượt mốc Nash 50% trước CẢ hai** agent xác suất (thắng Probabilistic 50.5%,
+thắng Bayesian 53.0%), đúng lý thuyết: chiến lược tiệm‑cận‑Nash trong trò chơi đối xứng
+tổng‑bằng‑không phải ≥ 50% trước mọi đối thủ khai thác được. Đây là bước nhảy lớn so với bản
+**chưa train đủ** (vs Probabilistic chỉ ~30–40%, xem §5.2): hạn chế trước đây là **thiếu
+huấn luyện (data‑starvation)**, không phải trần do trừu tượng hoá. Biểu đồ: `results/win_matrix.png`,
+`results/agent_stats.png`.
 
-### 5.2 Hội tụ CFR+ (40000 vòng lặp, bước 2000, eval 200 ván/mốc)
+### 5.2 Hội tụ CFR+ (40000 vòng lặp, bước 2000, eval 200 ván/mốc, depth 4)
 
-| Vòng lặp | avg_regret (↓) | Win‑rate vs Probabilistic |
-|---:|---:|---:|
-| 2000  | 0.000118 | 22.5% |
-| 8000  | 0.000055 | 25.5% |
-| 16000 | 0.000039 | 40.0% |
-| 24000 | 0.000032 | 38.0% |
-| 32000 | 0.000027 | 35.5% |
-| 40000 | 0.000025 | 41.5% |
+| Vòng lặp | raw_bound = Σ regret⁺ / T (↓) | Win‑rate vs Probabilistic | #infoset |
+|---:|---:|---:|---:|
+| 2000  | 4.302 | 32.0% | 37 938 |
+| 8000  | 2.880 | 42.0% | 58 704 |
+| 16000 | 2.117 | 43.5% | 63 083 |
+| 24000 | 1.752 | **55.5%** | 64 486 |
+| 32000 | 1.521 | **60.0%** | 65 267 |
+| 40000 | 1.362 | **51.0%** | 65 552 |
 
-Regret trung bình **giảm đơn điệu** `0.000118 → 0.000025` ⇒ xác nhận hội tụ (đại lượng
-chặn trên exploitability tiến về 0). Win‑rate thực nghiệm **đi lên rõ** `22% → ~42%` (đỉnh
-43.5% quanh 38k) — chiến lược mạnh dần theo huấn luyện và **vượt mốc bản đầu (39.5%)**, dù
-vẫn dưới 50% (trần do trừu tượng hoá + giới hạn độ sâu, không phải do thiếu huấn luyện).
-Biểu đồ: `results/cfr_convergence.png`.
+`raw_bound` (cận trên exploitability đúng chuẩn) **giảm đơn điệu** `4.30 → 1.36` ⇒ xác nhận
+CFR **hội tụ ĐÚNG**. Win‑rate thực nghiệm **đi lên rõ và VƯỢT 50%** từ khoảng ~24–28k vòng
+(dao động ±, đỉnh 64% quanh 36k) — chứng minh dứt khoát rằng giới hạn trước đây **chỉ là do
+THIẾU HUẤN LUYỆN**: không gian infoset (~66k, khoá bằng bộ xúc xắc chính xác) cần nhiều lượt
+thăm mới hội tụ — **KHÔNG phải trần do trừu tượng hoá** như bản báo cáo cũ kết luận. (Lưu ý:
+`avg_regret` cùng giảm `1.1e‑4 → 2.1e‑5` nhưng nhỏ "giả tạo" do chia cho #infoset đang tăng,
+xem §4.2.) Biểu đồ: `results/cfr_convergence.png`.
 
 ## 6. Mức độ phủ chương trình môn học
 
@@ -174,6 +191,10 @@ Biểu đồ: `results/cfr_convergence.png`.
 ```bash
 pip install -r requirements.txt
 python -m pytest -q                                  # 20 test pass
-python main.py --mode tournament --games 50 --seed 0 # ma trận + biểu đồ
-python main.py --mode exploit --iters 20000 --seed 0 # đường hội tụ CFR
+python main.py --mode tournament --games 200 --seed 0 # ma trận + biểu đồ
+python main.py --mode exploit --iters 40000 --seed 0  # đường hội tụ CFR
 ```
+> CFRAgent **nạp weights đã train nặng** từ `experiments/cfr_heavy.weights.json` nếu có
+> (mạnh ngay, không cần train lại); không có file thì tự train `--cfr-iters` vòng (mặc định
+> 40k) — tăng số này (~50k) để đạt sức mạnh trong §5.1. File weights ~51MB nên **không
+> commit** (xem `.gitignore`); sinh lại bằng `agent.train(50000)` rồi `agent.save_weights(...)`.

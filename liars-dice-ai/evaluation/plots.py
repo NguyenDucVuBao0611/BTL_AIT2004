@@ -69,10 +69,13 @@ def plot_convergence(history: Dict, path: str = "results/cfr_convergence.png") -
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
 
-    ax1.plot(iters, history["avg_regret"], marker="o", color="crimson")
+    # Dùng raw_bound (cận trên exploitability ĐÚNG CHUẨN) nếu có; tránh avg_regret (gây
+    # hiểu nhầm do chia thêm cho #infoset).
+    bound = history.get("raw_bound", history["avg_regret"])
+    ax1.plot(iters, bound, marker="o", color="crimson")
     ax1.set_xlabel("Số vòng lặp self-play")
-    ax1.set_ylabel("Regret dương trung bình / vòng lặp")
-    ax1.set_title("Hội tụ CFR: regret trung bình (chặn trên exploitability) ↓")
+    ax1.set_ylabel("Cận trên exploitability: Σ regret⁺ / T")
+    ax1.set_title("Hội tụ CFR: cận trên exploitability ↓")
     ax1.grid(True, alpha=0.3)
 
     ax2.plot(iters, [w * 100 for w in history["winrate_vs_prob"]], marker="s", color="seagreen")
