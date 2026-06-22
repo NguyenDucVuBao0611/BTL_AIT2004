@@ -14,6 +14,13 @@ Agent đối thủ chỉ cần tuân thủ Agent.act(observation, legal_actions)
 from __future__ import annotations
 
 import os
+
+# Khi chạy trực tiếp `python ui/gui.py` (chứ không phải `python -m ui.gui`), thêm gốc dự án
+# vào sys.path để import được các package `agents`, `game`... (giống các script experiments/).
+if __package__ in (None, ""):
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import random
 
 import pygame
