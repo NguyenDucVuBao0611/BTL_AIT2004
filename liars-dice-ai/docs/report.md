@@ -195,8 +195,11 @@ Nhận xét: mọi agent có chiến lược đè bẹp RandomAgent (100%). Sau 
 thắng Bayesian 53.0%), đúng lý thuyết: chiến lược tiệm‑cận‑Nash trong trò chơi đối xứng
 tổng‑bằng‑không phải ≥ 50% trước mọi đối thủ khai thác được. Đây là bước nhảy lớn so với bản
 **chưa train đủ** (vs Probabilistic chỉ ~30–40%, xem §5.2): hạn chế trước đây là **thiếu
-huấn luyện (data‑starvation)**, không phải trần do trừu tượng hoá. Biểu đồ: `results/win_matrix.png`,
-`results/agent_stats.png`.
+huấn luyện (data‑starvation)**, không phải trần do trừu tượng hoá.
+
+![Ma trận tỷ lệ thắng giữa các agent](../results/win_matrix.png)
+
+![Win-rate tổng của từng agent](../results/agent_stats.png)
 
 ### 5.2 Hội tụ CFR+ (40000 vòng lặp, bước 2000, eval 200 ván/mốc, depth 4)
 
@@ -215,14 +218,18 @@ CFR **hội tụ ĐÚNG**. Win‑rate thực nghiệm **đi lên rõ và VƯỢT
 THIẾU HUẤN LUYỆN**: không gian infoset (~66k, khoá bằng bộ xúc xắc chính xác) cần nhiều lượt
 thăm mới hội tụ — **KHÔNG phải trần do trừu tượng hoá** như bản báo cáo cũ kết luận. (Lưu ý:
 `avg_regret` cùng giảm `1.1e‑4 → 2.1e‑5` nhưng nhỏ "giả tạo" do chia cho #infoset đang tăng,
-xem §4.2.) Biểu đồ: `results/cfr_convergence.png`.
+xem §4.2.)
 
-**Trực quan nút thắt data‑starvation** (`results/cfr_infoset_growth.png`): số infoset **bùng
+![Hội tụ CFR: cận trên exploitability giảm và win-rate tăng theo số vòng lặp](../results/cfr_convergence.png)
+
+**Trực quan nút thắt data‑starvation:** số infoset **bùng
 nổ rất nhanh ở giai đoạn đầu rồi bão hoà** quanh `~65 552` (từ `37 938` ở 2k vòng) — cho thấy
 không gian infoset cực lớn được "phủ" gần hết từ sớm, nhưng đa số infoset chỉ vừa **xuất hiện
 một vài lần**. Hệ quả: ở mốc 40k vòng, trung bình **chỉ ~0.6 lượt cập nhật trên mỗi infoset**
 tính trên toàn không gian. Đây chính là lý do CFR cần **rất nhiều vòng** mới hội tụ — khẳng
 định lại rằng giới hạn là do thiếu huấn luyện, không phải do trừu tượng hoá.
+
+![Tăng trưởng số infoset theo số vòng lặp self-play](../results/cfr_infoset_growth.png)
 
 ## 6. Mức độ phủ chương trình môn học
 
