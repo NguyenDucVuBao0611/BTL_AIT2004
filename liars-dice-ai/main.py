@@ -84,69 +84,6 @@ def run_tournament(num_games=30, seed=0, make_plots=True, cfr_iters=40000):
         agent_cfr,
     ]
 
-<<<<<<< HEAD
-    def create_fresh_agent(agent_name):
-        if agent_name == "RandomAgent":
-            return RandomAgent("RandomAgent")
-        elif agent_name == "ProbabilisticAgent":
-            return ProbabilisticAgent("ProbabilisticAgent", threshold=0.5)
-        elif agent_name == "BayesianAgent":
-            return BayesianAgent("BayesianAgent")
-        elif agent_name == "CFRAgent":
-            new_cfr = CFRAgent("CFRAgent")
-            new_cfr.regret_table = agent_cfr.regret_table
-            new_cfr.strategy_table = agent_cfr.strategy_table
-            return new_cfr
-        raise ValueError(f"Unknown agent: {agent_name}")
-    
-    # Ma trận kết quả: win_matrix[player][opponent] = số trận player thắng opponent
-    win_matrix = {a.name: {opp.name: 0 for opp in agents} for a in agents}
-    
-    print(f"\nKhởi chạy giải đấu: mỗi cặp đấu {num_games} trận...")
-    for i in range(len(agents)):
-        for j in range(len(agents)):
-            if i == j:
-                continue
-            a1 = agents[i]
-            a2 = agents[j]
-            print(f"Đang đấu: {a1.name} vs {a2.name}... ", end="", flush=True)
-            
-            a1_wins = 0
-            for _ in range(num_games):
-                # Tạo mới instance cho mỗi trận đấu để tránh lỗi "ám trạng thái" (State Bleeding)
-                fresh_a1 = create_fresh_agent(a1.name)
-                fresh_a2 = create_fresh_agent(a2.name)
-                ref = Referee(fresh_a1, fresh_a2, start_dice=5, verbose=False)
-                winner_id = ref.play_game()
-                if winner_id == 0:
-                    a1_wins += 1
-                    
-            win_matrix[a1.name][a2.name] = a1_wins
-            win_rate = (a1_wins / num_games) * 100
-            print(f"Thắng {a1_wins}/{num_games} trận ({win_rate:.1f}%)")
-            
-    # Hiển thị bảng kết quả tỉ lệ thắng trực quan
-    print("\n" + "=" * 80)
-    print("BẢNG THỐNG KÊ TỶ LỆ CHIẾN THẮNG TRONG GIẢI ĐẤU (WIN-RATE MATRIX)")
-    print("=" * 80)
-    # In Header
-    print(f"{'Đội cược (Hàng)':<20} | ", end="")
-    for a in agents:
-        print(f"{a.name[:12]:<12} | ", end="")
-    print("\n" + "-" * 78)
-    
-    for a1 in agents:
-        print(f"{a1.name:<20} | ", end="")
-        for a2 in agents:
-            if a1.name == a2.name:
-                print(f"{'-':<12} | ", end="")
-            else:
-                wins = win_matrix[a1.name][a2.name]
-                wr = (wins / num_games) * 100
-                print(f"{wr:>5.1f}%      | ", end="")
-        print()
-    print("=" * 80 + "\n")
-=======
     print(f"\nKhởi chạy giải đấu: mỗi cặp đấu {num_games} ván (seed={seed})...")
     result = _run(agents, num_games=num_games, seed=seed)
     print_win_matrix(result)
@@ -182,7 +119,6 @@ def run_exploit(total_iterations=20000, step=2000, eval_games=200, seed=0, make_
             print(f"(Bỏ qua vẽ biểu đồ: {e})")
 
     return history
->>>>>>> 60744c8a5f5dadb435e766181c81ba8f4134e9f1
 
 def make_agent(name):
     """Tạo agent AI đối thủ cho chế độ chơi người-vs-AI (tên hiển thị = tên loại agent)."""
