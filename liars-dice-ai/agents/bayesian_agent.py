@@ -1,3 +1,6 @@
+import os
+import json
+import sys
 from typing import List, Optional
 from agents.base_agent import Agent
 from game.actions import Action, Bid, Challenge
@@ -33,9 +36,29 @@ class BayesianAgent(Agent):
         self.prior_alpha = prior_alpha
         self.prior_beta = prior_beta
 
-        # Thống kê hậu nghiệm: n cược đã phân định, k trong đó là bluff
+        # Thống kê hậu nghiệm theo 6 ngữ cảnh:
         self.resolved_opp_bids: int = 0
         self.opp_bluffs: int = 0
+
+        self.resolved_opp_bids_low_dice: int = 0
+        self.opp_bluffs_low_dice: int = 0
+
+        self.resolved_opp_bids_winning: int = 0
+        self.opp_bluffs_winning: int = 0
+
+        self.resolved_opp_bids_losing: int = 0
+        self.opp_bluffs_losing: int = 0
+
+        self.resolved_opp_bids_high_qty: int = 0
+        self.opp_bluffs_high_qty: int = 0
+
+        self.resolved_opp_bids_face1: int = 0
+        self.opp_bluffs_face1: int = 0
+
+        # Thống kê phản ứng của đối thủ khi ta cược mặt lớn (>= 4)
+        self.our_bids_high_face: int = 0
+        self.opp_challenges_high_face: int = 0
+        self._last_our_bid_high: bool = False
 
         # Hàng đợi quan sát thu được trước khi xác định được player_id
         self.pending_observations: List[tuple] = []
@@ -46,20 +69,123 @@ class BayesianAgent(Agent):
         # Số xúc xắc gần nhất của hai bên để phát hiện ai mất xúc xắc sau challenge
         self.last_dice_counts: Optional[dict] = None
 
+        self._skip_file_io = "pytest" in sys.modules
+        self.load_profile()
+
+    def load_profile(self):
+        if getattr(self, "_skip_file_io", False):
+            return
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        profile_path = os.path.join(base_dir, "results", "user_habit_profile.json")
+        if os.path.exists(profile_path):
+            try:
+                with open(profile_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self.resolved_opp_bids = data.get("resolved_opp_bids", 0)
+                self.opp_bluffs = data.get("opp_bluffs", 0)
+                self.resolved_opp_bids_low_dice = data.get("resolved_opp_bids_low_dice", 0)
+                self.opp_bluffs_low_dice = data.get("opp_bluffs_low_dice", 0)
+                self.resolved_opp_bids_winning = data.get("resolved_opp_bids_winning", 0)
+                self.opp_bluffs_winning = data.get("opp_bluffs_winning", 0)
+                self.resolved_opp_bids_losing = data.get("resolved_opp_bids_losing", 0)
+                self.opp_bluffs_losing = data.get("opp_bluffs_losing", 0)
+                self.resolved_opp_bids_high_qty = data.get("resolved_opp_bids_high_qty", 0)
+                self.opp_bluffs_high_qty = data.get("opp_bluffs_high_qty", 0)
+                self.resolved_opp_bids_face1 = data.get("resolved_opp_bids_face1", 0)
+                self.opp_bluffs_face1 = data.get("opp_bluffs_face1", 0)
+                self.our_bids_high_face = data.get("our_bids_high_face", 0)
+                self.opp_challenges_high_face = data.get("opp_challenges_high_face", 0)
+            except Exception as e:
+                print(f"Lỗi đọc file user_habit_profile.json: {e}")
+
+    def save_profile(self):
+        if getattr(self, "_skip_file_io", False):
+            return
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        results_dir = os.path.join(base_dir, "results")
+        os.makedirs(results_dir, exist_ok=True)
+        profile_path = os.path.join(results_dir, "user_habit_profile.json")
+        data = {
+            "resolved_opp_bids": self.resolved_opp_bids,
+            "opp_bluffs": self.opp_bluffs,
+            "resolved_opp_bids_low_dice": self.resolved_opp_bids_low_dice,
+            "opp_bluffs_low_dice": self.opp_bluffs_low_dice,
+            "resolved_opp_bids_winning": self.resolved_opp_bids_winning,
+            "opp_bluffs_winning": self.opp_bluffs_winning,
+            "resolved_opp_bids_losing": self.resolved_opp_bids_losing,
+            "opp_bluffs_losing": self.opp_bluffs_losing,
+            "resolved_opp_bids_high_qty": self.resolved_opp_bids_high_qty,
+            "opp_bluffs_high_qty": self.opp_bluffs_high_qty,
+            "resolved_opp_bids_face1": self.resolved_opp_bids_face1,
+            "opp_bluffs_face1": self.opp_bluffs_face1,
+            "our_bids_high_face": self.our_bids_high_face,
+            "opp_challenges_high_face": self.opp_challenges_high_face
+        }
+        try:
+            with open(profile_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Lỗi ghi file user_habit_profile.json: {e}")
+
     def reset(self):
         """Reset trạng thái nội bộ khi bắt đầu một game đấu mới."""
         self.player_id = None
         self.opponent_id = None
         self.resolved_opp_bids = 0
         self.opp_bluffs = 0
+        self.resolved_opp_bids_low_dice = 0
+        self.opp_bluffs_low_dice = 0
+        self.resolved_opp_bids_winning = 0
+        self.opp_bluffs_winning = 0
+        self.resolved_opp_bids_losing = 0
+        self.opp_bluffs_losing = 0
+        self.resolved_opp_bids_high_qty = 0
+        self.opp_bluffs_high_qty = 0
+        self.resolved_opp_bids_face1 = 0
+        self.opp_bluffs_face1 = 0
+        self.our_bids_high_face = 0
+        self.opp_challenges_high_face = 0
+        self._last_our_bid_high = False
         self.pending_observations.clear()
         self.last_challenge = None
         self.last_dice_counts = None
+        self.save_profile()
+
+
+
+    def get_best_bluff_rate(self, obs: dict, current_bid: Optional[Bid]) -> float:
+        """Lấy tỷ lệ bluff phù hợp nhất dựa trên phân cấp phân loại ngữ cảnh."""
+        opp_dice = obs["opponent_dice_count"]
+        my_dice = len(obs["my_dice"])
+        total_dice = opp_dice + my_dice
+
+        # 1. Ngữ cảnh đối thủ ít xúc xắc (<= 2)
+        if opp_dice <= 2 and self.resolved_opp_bids_low_dice >= 2:
+            return self._calc_rate(self.opp_bluffs_low_dice, self.resolved_opp_bids_low_dice)
+        
+        # 2. Ngữ cảnh cược mặt 1
+        if current_bid and current_bid.face_value == 1 and self.resolved_opp_bids_face1 >= 2:
+            return self._calc_rate(self.opp_bluffs_face1, self.resolved_opp_bids_face1)
+
+        # 3. Ngữ cảnh cược số lượng lớn (>= 50% tổng xúc xắc)
+        if current_bid and current_bid.quantity >= total_dice / 2.0 and self.resolved_opp_bids_high_qty >= 2:
+            return self._calc_rate(self.opp_bluffs_high_qty, self.resolved_opp_bids_high_qty)
+
+        # 4. Ngữ cảnh thế thắng/thua
+        if opp_dice > my_dice and self.resolved_opp_bids_winning >= 2:
+            return self._calc_rate(self.opp_bluffs_winning, self.resolved_opp_bids_winning)
+        elif opp_dice < my_dice and self.resolved_opp_bids_losing >= 2:
+            return self._calc_rate(self.opp_bluffs_losing, self.resolved_opp_bids_losing)
+
+        # 5. Ngữ cảnh mặc định
+        return self._calc_rate(self.opp_bluffs, self.resolved_opp_bids)
+
+    def _calc_rate(self, bluffs: int, resolved: int) -> float:
+        return (bluffs + self.prior_alpha) / (resolved + self.prior_alpha + self.prior_beta)
 
     def bluff_rate(self) -> float:
         """Kỳ vọng hậu nghiệm θ̂ của xác suất đối thủ bluff (Beta-Bernoulli)."""
-        return ((self.opp_bluffs + self.prior_alpha)
-                / (self.resolved_opp_bids + self.prior_alpha + self.prior_beta))
+        return self._calc_rate(self.opp_bluffs, self.resolved_opp_bids)
 
     def observe(self, action: Action, acting_player: int):
         """Theo dõi hành động của người chơi để thu thập dữ liệu suy luận online."""
@@ -69,22 +195,28 @@ class BayesianAgent(Agent):
         self._process_observation(action, acting_player)
 
     def _process_observation(self, action: Action, acting_player: int):
-        # Chỉ cần ghi nhận thời điểm Challenge; kết quả (ai mất xúc xắc) sẽ được
-        # đối chiếu ở lượt act() kế tiếp dựa trên thay đổi số xúc xắc.
+        # Theo dõi nếu ta thực hiện cược lớn (mặt >= 4)
+        if acting_player == self.player_id and isinstance(action, Bid) and action.face_value >= 4:
+            self._last_our_bid_high = True
+            
         if isinstance(action, Challenge):
             self.last_challenge = {
                 "bidder": 1 - acting_player,      # người bị tố cáo
                 "challenger": acting_player,
             }
+            if acting_player == self.opponent_id and getattr(self, "_last_our_bid_high", False):
+                self.opp_challenges_high_face += 1
+                self.our_bids_high_face += 1
+                self._last_our_bid_high = False
+                self.save_profile()
+        elif acting_player == self.opponent_id and isinstance(action, Bid):
+            # Nếu đối thủ không challenge nước cược mặt lớn của ta mà cược tiếp
+            if getattr(self, "_last_our_bid_high", False):
+                self.our_bids_high_face += 1
+                self._last_our_bid_high = False
+                self.save_profile()
 
     def _resolve_last_challenge(self, observation: dict):
-        """Cập nhật hậu nghiệm Beta từ kết quả của lượt Challenge gần nhất.
-
-        Một Challenge luôn lật tẩy cược đang đứng (current_bid) của `bidder`. Nếu
-        bidder chính là đối thủ thì đây là một mẫu có nhãn về xu hướng bluff của họ:
-          - đối thủ mất xúc xắc ⇒ cược của họ SAI ⇒ bluff bị bắt   (k += 1, n += 1)
-          - ta mất xúc xắc       ⇒ cược của họ ĐÚNG ⇒ không bluff   (n += 1)
-        """
         if self.last_challenge is None or self.last_dice_counts is None:
             return
 
@@ -92,13 +224,63 @@ class BayesianAgent(Agent):
         if self.last_challenge["bidder"] == self.opponent_id:
             old_opp = self.last_dice_counts[self.opponent_id]
             new_opp = observation["opponent_dice_count"]
+            old_my = self.last_dice_counts[self.player_id]
 
+            # Thử tìm nước cược cuối cùng của đối thủ từ lịch sử
+            history = observation.get("history", [])
+            last_bid = None
+            if len(history) >= 2:
+                for i in range(len(history) - 1, -1, -1):
+                    if history[i][0] == self.opponent_id and isinstance(history[i][1], Bid):
+                        last_bid = history[i][1]
+                        break
+            if last_bid is None:
+                last_bid = observation.get("current_bid")
+
+            is_bluff = new_opp < old_opp
+            total_dice = old_opp + old_my
+
+            # Cập nhật Multi-context:
+            # 1. General
             self.resolved_opp_bids += 1
-            if new_opp < old_opp:
-                # Đối thủ (bidder) mất xúc xắc ⇒ cược sai ⇒ đó là bluff
+            if is_bluff:
                 self.opp_bluffs += 1
 
+            # 2. Opponent Low Dice (<= 2)
+            if old_opp <= 2:
+                self.resolved_opp_bids_low_dice += 1
+                if is_bluff:
+                    self.opp_bluffs_low_dice += 1
+
+            # 3. Opponent Winning (Đối thủ nhiều xúc xắc hơn AI)
+            if old_opp > old_my:
+                self.resolved_opp_bids_winning += 1
+                if is_bluff:
+                    self.opp_bluffs_winning += 1
+
+            # 4. Opponent Losing (Đối thủ ít xúc xắc hơn AI)
+            if old_opp < old_my:
+                self.resolved_opp_bids_losing += 1
+                if is_bluff:
+                    self.opp_bluffs_losing += 1
+
+            # 5. High Bid Quantity (>= 50% tổng xúc xắc)
+            if last_bid and last_bid.quantity >= total_dice / 2.0:
+                self.resolved_opp_bids_high_qty += 1
+                if is_bluff:
+                    self.opp_bluffs_high_qty += 1
+
+            # 6. Face 1 Bid
+            if last_bid and last_bid.face_value == 1:
+                self.resolved_opp_bids_face1 += 1
+                if is_bluff:
+                    self.opp_bluffs_face1 += 1
+
+            self.save_profile()
+
         self.last_challenge = None
+
+
 
     def act(self, observation: dict, legal_actions: List[Action]) -> Action:
         # Khởi tạo player_id/opponent_id và xử lý các quan sát pending
@@ -118,14 +300,44 @@ class BayesianAgent(Agent):
             self.opponent_id: observation["opponent_dice_count"],
         }
 
-        # Ngưỡng động ∈ [0.4, 0.6] tỉ lệ thuận với xác suất bluff hậu nghiệm:
-        # đối thủ hay bluff ⇒ ngưỡng cao ⇒ dễ Challenge; thật thà ⇒ ngưỡng thấp ⇒ an toàn.
-        dynamic_threshold = max(0.4, min(0.6, 0.4 + self.bluff_rate() * 0.2))
+        current_bid = observation["current_bid"]
 
-        # Logic ra quyết định (giống ProbabilisticAgent nhưng dùng ngưỡng động)
+        # 1. Tính toán modifier cho độ khả nghi dựa trên lịch sử bước nhảy cược
+        history = observation.get("history", [])
+        history_bluff_modifier = 1.0
+        opp_bid_indices = [i for i, (pid, action) in enumerate(history) if pid == self.opponent_id and isinstance(action, Bid)]
+        
+        if opp_bid_indices:
+            last_idx = opp_bid_indices[-1]
+            last_opp_bid = history[last_idx][1]
+            
+            # Tìm cược ngay trước đó để tính bước nhảy
+            prev_bid = None
+            for i in range(last_idx - 1, -1, -1):
+                if isinstance(history[i][1], Bid):
+                    prev_bid = history[i][1]
+                    break
+                    
+            if prev_bid:
+                dq = last_opp_bid.quantity - prev_bid.quantity
+                if dq >= 2:
+                    history_bluff_modifier = 1.3  # Giật cược đột biến -> dễ là bluff hơn
+                elif dq == 1 or (dq == 0 and last_opp_bid.face_value > prev_bid.face_value):
+                    history_bluff_modifier = 0.8  # Tăng cược tối thiểu -> cẩn thận/thật thà hơn
+            else:
+                # Đối thủ đi đầu tiên của vòng chơi
+                total_dice = len(observation["my_dice"]) + observation["opponent_dice_count"]
+                if last_opp_bid.quantity > total_dice / 3.0:
+                    history_bluff_modifier = 1.2  # Mở màn hô quá to -> có độ khả nghi cao hơn
+
+        # 2. Ngưỡng động ∈ [0.35, 0.65] tỉ lệ thuận với xác suất bluff trong ngữ cảnh phù hợp nhất
+        base_bluff_rate = self.get_best_bluff_rate(observation, current_bid)
+        rate = base_bluff_rate * history_bluff_modifier
+        dynamic_threshold = max(0.35, min(0.65, 0.4 + rate * 0.2))
+
+        # Logic ra quyết định
         my_dice = observation["my_dice"]
         counts = {f: count_matching_dice([my_dice], f) for f in range(1, 7)}
-        current_bid = observation["current_bid"]
 
         # Trường hợp đi đầu vòng (chưa có ai cược)
         if current_bid is None:
@@ -153,12 +365,19 @@ class BayesianAgent(Agent):
         # Xác suất đối thủ nói thật
         P_truth = binomial_probability(k, n, p)
 
-        # Quyết định Challenge dựa trên ngưỡng động
+        # Quyết định Challenge dựa trên ngưỡng động đã hiệu chỉnh
         if P_truth < dynamic_threshold and any(isinstance(a, Challenge) for a in legal_actions):
             return Challenge()
 
-        # Ngược lại, nâng cược an toàn nhất theo mặt ta giữ nhiều nhất
+        # Ngược lại, nâng cược
         sorted_faces = sorted(range(1, 7), key=lambda f: (counts[f], f), reverse=True)
+        
+        # BÓC LỘT: Nếu đối thủ hiếm khi challenge khi ta cược mặt lớn (>= 4), ưu tiên đưa mặt lớn lên đầu
+        if self.our_bids_high_face >= 3:
+            chal_rate = self.opp_challenges_high_face / self.our_bids_high_face
+            if chal_rate < 0.25:
+                sorted_faces = [f for f in sorted_faces if f >= 4] + [f for f in sorted_faces if f < 4]
+
         for face in sorted_faces:
             matching_bids = [
                 action for action in legal_actions

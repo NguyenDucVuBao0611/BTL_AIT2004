@@ -1,0 +1,39 @@
+{
+  "timestamp": 231,
+  "phase": "Lượt của bạn",
+  "last_actor": null,
+  "action_chosen": "",
+  "mode": "CFR (Tra bảng)",
+  "visits": 0,
+  "p_truth": null,
+  "threshold": null,
+  "modifier": null,
+  "base_rate": null,
+  "distribution": {},
+  "ai_dice": [
+    2,
+    2,
+    3,
+    4,
+    4
+  ],
+  "opponent_dice_count": 5,
+  "current_bid": null,
+  "player_streak": 0,
+  "bayesian_context_metrics": {
+    "resolved_opp_bids": 0,
+    "opp_bluffs": 0,
+    "resolved_opp_bids_low_dice": 0,
+    "opp_bluffs_low_dice": 0,
+    "resolved_opp_bids_winning": 0,
+    "opp_bluffs_winning": 0,
+    "resolved_opp_bids_losing": 0,
+    "opp_bluffs_losing": 0,
+    "resolved_opp_bids_high_qty": 0,
+    "opp_bluffs_high_qty": 0,
+    "resolved_opp_bids_face1": 0,
+    "opp_bluffs_face1": 0,
+    "our_bids_high_face": 0,
+    "opp_challenges_high_face": 0
+  }
+}

@@ -1,3 +1,7 @@
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import pytest
 from game.state import GameState
 from game.actions import Bid, Challenge
@@ -143,3 +147,8 @@ def test_apply_challenge_bidder_truth():
     # Reset vòng mới, người thua cuộc (Player 1) bắt đầu lượt đi đầu tiên
     assert state.current_bid is None
     assert state.current_player == 1
+
+
+if __name__ == "__main__":
+    import pytest
+    sys.exit(pytest.main([__file__]))

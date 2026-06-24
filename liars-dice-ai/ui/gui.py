@@ -36,7 +36,7 @@ MIN_FACE, MAX_FACE = 1, 6
 NUM_FACES = 6
 
 # ---- Kích thước & màu ----
-W, H = 1024, 720
+W, H = 800, 720
 FPS = 60
 AI_THINK_MS = 900
 
@@ -126,7 +126,7 @@ class Button:
 # ======================= Trò chơi =======================
 
 class LiarsDiceGUI:
-    def __init__(self, screen, ai: Agent, seed=None, dice_per_player=5):
+    def __init__(self, screen, ai: Agent, seed=None, dice_per_player=5, weights_path=None):
         self.screen = screen
         self.ai = ai
         if seed is not None:
@@ -141,13 +141,34 @@ class LiarsDiceGUI:
         self.counts = [dice_per_player, dice_per_player]
         self.start_player = HUMAN
         self.log_lines: list[str] = []
+        self.round_history: list[dict] = []
         self.message = ""
         self.reveal = None          # dict thông tin lúc lật bài
         self.winner = None
         self.ai_think_at = None
         self.sel_q = 1
         self.sel_f = MIN_FACE
+        self.player_streak = 0
         self.buttons: dict[str, Button] = {}
+        self.weights_path = weights_path  # đường dẫn để auto-save sau mỗi ván
+
+        # Khởi tạo thông tin cho Bayesian Agent (hoặc fallback) ngay lập tức
+        bayes_agent = None
+        from agents.bayesian_agent import BayesianAgent
+        from agents.cfr_agent import CFRAgent
+        if isinstance(self.ai, BayesianAgent):
+            bayes_agent = self.ai
+        elif isinstance(self.ai, CFRAgent) and self.ai.fallback_agent:
+            bayes_agent = self.ai.fallback_agent
+        if bayes_agent:
+            bayes_agent.player_id = AI
+            bayes_agent.opponent_id = HUMAN
+            bayes_agent.last_dice_counts = {
+                AI: dice_per_player,
+                HUMAN: dice_per_player
+            }
+
+
         # GameState là nguồn sự thật cho ván hiện tại (hands/current_bid/...).
         self.state = GameState(start_dice=dice_per_player)
         if hasattr(self.ai, "reset"):
@@ -167,6 +188,32 @@ class LiarsDiceGUI:
             self.ai_think_at = pygame.time.get_ticks() + AI_THINK_MS
         self._log(f"— Vòng mới: bạn {self.counts[HUMAN]} xúc xắc, "
                   f"AI {self.counts[AI]} xúc xắc —")
+        
+        # Đồng bộ thông tin Bayesian Agent
+        bayes_agent = None
+        from agents.bayesian_agent import BayesianAgent
+        from agents.cfr_agent import CFRAgent
+        if isinstance(self.ai, BayesianAgent):
+            bayes_agent = self.ai
+        elif isinstance(self.ai, CFRAgent) and self.ai.fallback_agent:
+            bayes_agent = self.ai.fallback_agent
+        if bayes_agent:
+            bayes_agent.player_id = AI
+            bayes_agent.opponent_id = HUMAN
+            bayes_agent.last_dice_counts = {
+                AI: self.counts[AI],
+                HUMAN: self.counts[HUMAN]
+            }
+
+        # Lưu vào lịch sử đấu
+        self.round_history.append({
+            "round_num": len(self.round_history) + 1,
+            "my_dice": self.counts[HUMAN],
+            "ai_dice": self.counts[AI],
+            "winner": None
+        })
+        
+        self._export_thinking_state()
 
     def _reset_selection(self):
         cur = self.state.current_bid
@@ -224,23 +271,233 @@ class LiarsDiceGUI:
             self._log(f"{who} hô LIAR! (mặt {face}: thực {actual} / cược {claimed})")
             if hasattr(self.ai, "observe"):
                 self.ai.observe(action, actor)
+            
+            # Cập nhật kết quả challenge cho Bayes agent ngay lập tức để hiển thị ngay trên màn hình Reveal
+            bayes_agent = None
+            from agents.bayesian_agent import BayesianAgent
+            from agents.cfr_agent import CFRAgent
+            if isinstance(self.ai, BayesianAgent):
+                bayes_agent = self.ai
+            elif isinstance(self.ai, CFRAgent) and self.ai.fallback_agent:
+                bayes_agent = self.ai.fallback_agent
+                
+            if bayes_agent:
+                if bayes_agent.player_id is None:
+                    bayes_agent.player_id = AI
+                    bayes_agent.opponent_id = HUMAN
+                if bayes_agent.last_dice_counts is None:
+                    bayes_agent.last_dice_counts = {
+                        AI: self.counts[AI],
+                        HUMAN: self.counts[HUMAN]
+                    }
+                if bayes_agent.last_challenge is not None:
+                    obs = {
+                        "opponent_dice_count": self.counts[HUMAN] - (1 if loser == HUMAN else 0),
+                        "my_dice": self.state.hands[AI] if self.state.hands else [],
+                        "history": self.state.history,
+                        "current_bid": self.state.current_bid
+                    }
+                    bayes_agent._resolve_last_challenge(obs)
+
             self.reveal = {
                 "loser": loser, "actual": actual, "claimed": claimed,
                 "face": face, "challenger": actor,
             }
             self.phase = "reveal"
+        self._export_thinking_state(actor, action)
+
 
     def _resolve_reveal(self):
         loser = self.reveal["loser"]
         self.counts[loser] -= 1
         self._log(f"{'Bạn' if loser == HUMAN else 'AI'} thua vòng, mất 1 xúc xắc "
                   f"→ {self.counts}")
+        
+        if self.round_history:
+            self.round_history[-1]["winner"] = "Bạn" if loser == AI else "AI"
+        
+        # Cập nhật kết quả challenge cho Bayes agent ngay lập tức để thống kê không bị trễ
+        bayes_agent = None
+        from agents.bayesian_agent import BayesianAgent
+        from agents.cfr_agent import CFRAgent
+        if isinstance(self.ai, BayesianAgent):
+            bayes_agent = self.ai
+        elif isinstance(self.ai, CFRAgent) and self.ai.fallback_agent:
+            bayes_agent = self.ai.fallback_agent
+            
+        if bayes_agent:
+            if bayes_agent.player_id is None:
+                bayes_agent.player_id = AI
+                bayes_agent.opponent_id = HUMAN
+            if bayes_agent.last_dice_counts is None:
+                bayes_agent.last_dice_counts = {
+                    AI: self.counts[AI] + (1 if loser == AI else 0),
+                    HUMAN: self.counts[HUMAN] + (1 if loser == HUMAN else 0)
+                }
+            if bayes_agent.last_challenge is not None:
+                obs = {
+                    "opponent_dice_count": self.counts[HUMAN],
+                    "my_dice": self.state.hands[AI] if self.state.hands else [],
+                    "history": self.state.history,
+                    "current_bid": self.state.current_bid
+                }
+                bayes_agent._resolve_last_challenge(obs)
+
         if self.counts[loser] == 0:
             self.winner = 1 - loser
             self.phase = "gameover"
+            # Cập nhật chuỗi thắng/thua (streak)
+            if self.winner == HUMAN:
+                self.player_streak = max(1, self.player_streak + 1) if self.player_streak > 0 else 1
+            else:
+                self.player_streak = min(-1, self.player_streak - 1) if self.player_streak < 0 else -1
+            self._learn_and_save()  # AI học thêm từ ván vừa đánh rồi lưu lại
+            self._export_thinking_state()
         else:
             self.start_player = loser
             self._new_round()
+
+    def _learn_and_save(self):
+        """Sau mỗi ván kết thúc: train thêm 200 vòng CFR rồi auto-save weights.
+        Giúp AI ngày càng khôn hơn theo cách chơi của người dùng."""
+        from agents.cfr_agent import CFRAgent
+        if not isinstance(self.ai, CFRAgent) or self.weights_path is None:
+            return
+        try:
+            # Đưa cả việc tự chơi 200 vòng (train) và lưu file weights vào luồng ngầm (threading)
+            # giúp màn hình chờ gameover của Pygame không bị đóng băng/khựng lại.
+            import threading
+            def bg_train_and_save():
+                try:
+                    self.ai.train(200)  # tự chơi ảo 200 vòng trong luồng ngầm (mất ~1-2s)
+                    self.ai.save_weights(self.weights_path)  # lưu bộ não ngầm (mất ~0.2s)
+                except Exception as ex:
+                    print(f"Lỗi train/save ngầm: {ex}")
+                    
+            threading.Thread(target=bg_train_and_save, daemon=True).start()
+            
+            n = len(self.ai.strategy_table)
+            self._log(f"💾 AI đang tự học & lưu ngầm 200 vòng — ngày càng khôn hơn!")
+        except Exception as e:
+            self._log(f"(Không kích hoạt học ngầm được: {e})")
+
+    def _export_thinking_state(self, last_actor=None, last_action=None):
+        import json
+        import os
+        
+        mode = "Bayes (Ứng biến)"
+        visits = 0
+        distribution = {}
+        p_truth = 0.5
+        threshold = 0.5
+        modifier = 1.0
+        base_rate = 0.33
+        action_type = "cược"
+        
+        from agents.cfr_agent import CFRAgent
+        from agents.bayesian_agent import BayesianAgent
+        
+        if isinstance(self.ai, CFRAgent):
+            mode = getattr(self.ai, "last_mode", "CFR (Tra bảng)")
+            visits = getattr(self.ai, "last_visits", 0)
+            distribution = getattr(self.ai, "last_distribution", {})
+            
+            if mode == "Bayes (Ứng biến)":
+                p_truth = getattr(self.ai, "last_fallback_p_truth", 0.5)
+                threshold = getattr(self.ai, "last_fallback_threshold", 0.5)
+                modifier = getattr(self.ai, "last_fallback_modifier", 1.0)
+                if self.ai.fallback_agent:
+                    base_rate = getattr(self.ai.fallback_agent, "last_base_rate", 0.33)
+                    action_type = getattr(self.ai.fallback_agent, "last_action_type", "cược")
+            else:
+                p_truth = None
+                threshold = None
+                modifier = None
+                base_rate = None
+                action_type = "tố cáo" if (last_action and isinstance(last_action, Challenge)) else "cược"
+        elif isinstance(self.ai, BayesianAgent):
+            mode = "Bayes (Ứng biến)"
+            p_truth = getattr(self.ai, "last_p_truth", 0.5)
+            threshold = getattr(self.ai, "last_threshold", 0.5)
+            modifier = getattr(self.ai, "last_modifier", 1.0)
+            base_rate = getattr(self.ai, "last_base_rate", 0.33)
+            action_type = getattr(self.ai, "last_action_type", "cược")
+
+        action_str = ""
+        if last_action:
+            if isinstance(last_action, Challenge):
+                action_str = "LIAR! (Tố cáo)"
+            elif isinstance(last_action, Bid):
+                action_str = f"Cược {last_action.quantity} con mặt {last_action.face_value}"
+        
+        phase_map = {
+            "human_turn": "Lượt của bạn",
+            "ai_turn": "Lượt của AI (Đang suy nghĩ...)",
+            "reveal": "Hạ bài phân định",
+            "gameover": "Kết thúc ván đấu"
+        }
+        
+        state_data = {
+            "timestamp": pygame.time.get_ticks(),
+            "phase": phase_map.get(self.phase, self.phase),
+            "last_actor": "AI" if last_actor == AI else ("Bạn" if last_actor == HUMAN else None),
+            "action_chosen": action_str,
+            "mode": mode,
+            "visits": visits,
+            "p_truth": p_truth,
+            "threshold": threshold,
+            "modifier": modifier,
+            "base_rate": base_rate,
+            "distribution": {str(k): float(v) for k, v in distribution.items()},
+            "ai_dice": self.state.hands[AI] if self.state.hands else [],
+            "opponent_dice_count": self.counts[HUMAN],
+            "current_bid": {
+                "quantity": self.state.current_bid.quantity,
+                "face_value": self.state.current_bid.face_value
+            } if self.state.current_bid else None,
+            "player_streak": self.player_streak,
+            "bayesian_context_metrics": None
+        }
+        
+        bayes_agent = None
+        if isinstance(self.ai, BayesianAgent):
+            bayes_agent = self.ai
+        elif isinstance(self.ai, CFRAgent) and self.ai.fallback_agent:
+            bayes_agent = self.ai.fallback_agent
+            
+        if bayes_agent:
+            if bayes_agent.player_id is None:
+                bayes_agent.player_id = AI
+                bayes_agent.opponent_id = HUMAN
+            if bayes_agent.last_dice_counts is None:
+                bayes_agent.last_dice_counts = {
+                    AI: self.counts[AI],
+                    HUMAN: self.counts[HUMAN]
+                }
+            state_data["bayesian_context_metrics"] = {
+                "resolved_opp_bids": bayes_agent.resolved_opp_bids,
+                "opp_bluffs": bayes_agent.opp_bluffs,
+                "resolved_opp_bids_low_dice": bayes_agent.resolved_opp_bids_low_dice,
+                "opp_bluffs_low_dice": bayes_agent.opp_bluffs_low_dice,
+                "resolved_opp_bids_winning": bayes_agent.resolved_opp_bids_winning,
+                "opp_bluffs_winning": bayes_agent.opp_bluffs_winning,
+                "resolved_opp_bids_losing": bayes_agent.resolved_opp_bids_losing,
+                "opp_bluffs_losing": bayes_agent.opp_bluffs_losing,
+                "resolved_opp_bids_high_qty": bayes_agent.resolved_opp_bids_high_qty,
+                "opp_bluffs_high_qty": bayes_agent.opp_bluffs_high_qty,
+                "resolved_opp_bids_face1": bayes_agent.resolved_opp_bids_face1,
+                "opp_bluffs_face1": bayes_agent.opp_bluffs_face1,
+                "our_bids_high_face": bayes_agent.our_bids_high_face,
+                "opp_challenges_high_face": bayes_agent.opp_challenges_high_face
+            }
+            
+        try:
+            results_dir = os.path.join(os.path.dirname(__file__), '..', 'results')
+            os.makedirs(results_dir, exist_ok=True)
+            with open(os.path.join(results_dir, "ai_thinking_state.json"), "w", encoding="utf-8") as f:
+                json.dump(state_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Lỗi ghi file ai_thinking_state.json: {e}")
 
     # ---------- sự kiện ----------
     def handle_click(self, pos):
@@ -269,18 +526,33 @@ class LiarsDiceGUI:
     def update(self):
         if self.phase == "ai_turn" and pygame.time.get_ticks() >= self.ai_think_at:
             obs = self.state.get_observation(AI)
-            action = self.ai.act(obs, get_legal_actions(self.state))
+            
+            # Độ khó thích nghi:
+            # - Bạn thắng liên tiếp >= 3 ván: AI chơi ngẫu nhiên/lắt léo để phòng thủ (mixed_strategy = True)
+            # - Bạn đang thua: AI chơi an toàn tuyệt đối (mixed_strategy = False)
+            # - Mặc định khác: True
+            use_mixed = True
+            if self.player_streak >= 3:
+                use_mixed = True
+            elif self.player_streak < 0:
+                use_mixed = False
+
+            from agents.cfr_agent import CFRAgent
+            if isinstance(self.ai, CFRAgent):
+                action = self.ai.act(obs, get_legal_actions(self.state), mixed_strategy=use_mixed)
+            else:
+                action = self.ai.act(obs, get_legal_actions(self.state))
             self._apply_action(AI, action)
 
     # ---------- vẽ ----------
     def _build_buttons(self):
         self.buttons = {
-            "q-": Button((360, 560, 44, 44), "−", BLUE_BTN, self.f_mid),
-            "q+": Button((470, 560, 44, 44), "+", BLUE_BTN, self.f_mid),
-            "f-": Button((610, 560, 44, 44), "−", BLUE_BTN, self.f_mid),
-            "f+": Button((720, 560, 44, 44), "+", BLUE_BTN, self.f_mid),
-            "bid": Button((360, 630, 200, 56), "CƯỢC (BID)", GREEN_BTN, self.f_mid),
-            "liar": Button((580, 630, 184, 56), "LIAR!", RED, self.f_mid),
+            "q-": Button((200, 560, 44, 44), "−", BLUE_BTN, self.f_mid),
+            "q+": Button((310, 560, 44, 44), "+", BLUE_BTN, self.f_mid),
+            "f-": Button((450, 560, 44, 44), "−", BLUE_BTN, self.f_mid),
+            "f+": Button((560, 560, 44, 44), "+", BLUE_BTN, self.f_mid),
+            "bid": Button((200, 630, 200, 56), "CƯỢC (BID)", GREEN_BTN, self.f_mid),
+            "liar": Button((420, 630, 184, 56), "LIAR!", RED, self.f_mid),
         }
 
     def draw(self):
@@ -291,56 +563,58 @@ class LiarsDiceGUI:
         # Tiêu đề
         title = self.f_big.render("Liar's Dice", True, GOLD)
         s.blit(title, (40, 24))
-        sub = self.f_sm.render(f"Đối thủ: {self.ai.name}", True, DIM)
-        s.blit(sub, (44, 78))
 
         # --- Khu AI (trên) ---
         ai_reveal = self.phase in ("reveal", "gameover")
-        self._draw_label("AI", 40, 120, RED)
+        
+        # Nhãn AI phát sáng theo nhịp đập khi đang suy nghĩ
+        ai_label_color = RED
+        if self.phase == "ai_turn":
+            import math
+            pulse = (math.sin(pygame.time.get_ticks() * 0.007) + 1.0) / 2.0
+            ai_label_color = tuple(int(c1 * (1.0 - pulse) + c2 * pulse) for c1, c2 in zip(RED, (255, 120, 120)))
+        
+        status_suffix = " (Đang suy nghĩ...)" if self.phase == "ai_turn" else ""
+        self._draw_label(f"AI{status_suffix}", 40, 120, ai_label_color)
+        
         ai_dice = self.state.hands[AI]
         hi_face = self.reveal["face"] if self.reveal else None
         for i in range(self.counts[AI]):
             val = ai_dice[i] if i < len(ai_dice) else 1
-            draw_die(s, 120 + i * 96, 150, 80,
+            draw_die(s, 168 + i * 96, 150, 80,
                      val if ai_reveal else 0,
                      hidden=not ai_reveal,
                      highlight=ai_reveal and (val == hi_face or val == 1) and hi_face is not None)
 
         # --- Bid hiện tại (giữa) ---
         cur = self.state.current_bid
-        pygame.draw.rect(s, PANEL, (40, 270, 600, 96), border_radius=14)
+        pygame.draw.rect(s, PANEL, (40, 270, 720, 96), border_radius=14)
         if cur is None:
             ct = self.f_mid.render("Chưa có cược — bạn ra cược trước", True, TEXT)
         else:
             ct = self.f_big.render(f"Cược: {cur.quantity} × mặt {cur.face_value}", True, WHITE)
-        s.blit(ct, ct.get_rect(midleft=(64, 318)))
+        s.blit(ct, ct.get_rect(center=(400, 318)))
 
         # --- Khu người chơi (dưới) ---
-        self._draw_label("BẠN", 40, 396, (120, 200, 255))
+        player_label_color = (120, 200, 255)
+        if self.phase == "human_turn":
+            import math
+            pulse = (math.sin(pygame.time.get_ticks() * 0.007) + 1.0) / 2.0
+            player_label_color = tuple(int(c1 * (1.0 - pulse) + c2 * pulse) for c1, c2 in zip((120, 200, 255), (200, 230, 255)))
+            
+        status_suffix = " (Lượt của bạn)" if self.phase == "human_turn" else ""
+        self._draw_label(f"BẠN{status_suffix}", 40, 396, player_label_color)
+        
         for i, val in enumerate(self.state.hands[HUMAN]):
-            draw_die(s, 120 + i * 96, 426, 80, val,
+            draw_die(s, 168 + i * 96, 426, 80, val,
                      highlight=hi_face is not None and ai_reveal and (val == hi_face or val == 1))
-
-        # --- Log (phải) ---
-        log_x, log_y, log_w, log_h = 680, 120, 304, 470
-        pygame.draw.rect(s, PANEL, (log_x, log_y, log_w, log_h), border_radius=14)
-        lt = self.f_sm.render("Diễn biến", True, GOLD)
-        s.blit(lt, (700, 132))
-        max_w = log_x + log_w - 700 - 14    # bề rộng tối đa của 1 dòng chữ
-        line_h = 26
-        top = 168
-        budget = (log_y + log_h - top - 8) // line_h   # số dòng vẽ vừa khung
-        wrapped: list[str] = []
-        for line in self.log_lines:
-            wrapped.extend(self._wrap_text(line, self.f_log, max_w))
-        for i, wl in enumerate(wrapped[-budget:]):
-            s.blit(self.f_log.render(wl, True, TEXT), (700, top + i * line_h))
 
         # --- Điều khiển / trạng thái ---
         if self.phase == "human_turn":
             self._draw_controls(mouse)
         elif self.phase == "ai_turn":
-            self._draw_center_msg("AI đang suy nghĩ…", GOLD)
+            dots = "." * ((pygame.time.get_ticks() // 250) % 4)
+            self._draw_center_msg(f"AI đang suy nghĩ{dots}", GOLD)
         elif self.phase == "reveal":
             self._draw_reveal()
         elif self.phase == "gameover":
@@ -378,12 +652,12 @@ class LiarsDiceGUI:
     def _draw_controls(self, mouse):
         s = self.screen
         # Steppers
-        s.blit(self.f_sm.render("Số lượng", True, DIM), (360, 532))
-        s.blit(self.f_sm.render("Mặt", True, DIM), (610, 532))
+        s.blit(self.f_sm.render("Số lượng", True, DIM), (200, 532))
+        s.blit(self.f_sm.render("Mặt", True, DIM), (450, 532))
         qv = self.f_mid.render(str(self.sel_q), True, WHITE)
-        s.blit(qv, qv.get_rect(center=(437, 582)))
+        s.blit(qv, qv.get_rect(center=(277, 582)))
         fv = self.f_mid.render(str(self.sel_f), True, WHITE)
-        s.blit(fv, fv.get_rect(center=(687, 582)))
+        s.blit(fv, fv.get_rect(center=(527, 582)))
         legal = self._sel_is_legal()
         self.buttons["bid"].enabled = legal
         self.buttons["liar"].enabled = self.state.current_bid is not None
@@ -391,10 +665,10 @@ class LiarsDiceGUI:
             self.buttons[key].draw(s, mouse)
         if not legal:
             warn = self.f_sm.render("(nước cược phải cao hơn cược hiện tại)", True, (255, 200, 120))
-            s.blit(warn, (360, 700 - 4))
+            s.blit(warn, warn.get_rect(center=(400, 696)))
 
     def _draw_center_msg(self, text, color):
-        box = pygame.Rect(360, 600, 404, 90)
+        box = pygame.Rect(200, 600, 400, 90)
         pygame.draw.rect(self.screen, PANEL_LIGHT, box, border_radius=12)
         t = self.f_mid.render(text, True, color)
         self.screen.blit(t, t.get_rect(center=box.center))
@@ -403,14 +677,14 @@ class LiarsDiceGUI:
         rv = self.reveal
         loser_txt = "Bạn THUA vòng" if rv["loser"] == HUMAN else "AI THUA vòng"
         color = RED if rv["loser"] == HUMAN else GREEN_BTN
-        box = pygame.Rect(40, 600, 600, 96)
+        box = pygame.Rect(40, 600, 720, 96)
         pygame.draw.rect(self.screen, PANEL_LIGHT, box, border_radius=12)
         l1 = self.f_mid.render(
             f"Mặt {rv['face']}: thực tế {rv['actual']} (cược {rv['claimed']}) → {loser_txt}",
             True, color)
-        self.screen.blit(l1, (60, 612))
+        self.screen.blit(l1, l1.get_rect(center=(400, 624)))
         l2 = self.f_sm.render("Bấm chuột để sang vòng tiếp theo", True, DIM)
-        self.screen.blit(l2, (60, 656))
+        self.screen.blit(l2, l2.get_rect(center=(400, 668)))
 
     def _draw_gameover(self):
         overlay = pygame.Surface((W, H), pygame.SRCALPHA)
@@ -428,18 +702,44 @@ class LiarsDiceGUI:
         self.start_player = HUMAN
         self.winner = None
         self.log_lines = []
+        self.round_history = []
         if hasattr(self.ai, "reset"):
             self.ai.reset()
         self._new_round()
 
 
-def play_gui(ai_agent: Agent | None = None, seed=None, dice_per_player=5):
+
+def play_gui(ai_agent: Agent | None = None, seed=None, dice_per_player=5, weights_path=None):
+    # Tự động mở Web Dashboard song song trong tiến trình ngầm
+    try:
+        import subprocess
+        import sys
+        import os
+        dashboard_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "web_dashboard.py"))
+        
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            
+        subprocess.Popen(
+            [sys.executable, dashboard_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            **kwargs
+        )
+        print("======================================================================")
+        print("🚀 Web Dashboard đã tự động mở song song tại: http://localhost:8000")
+        print("======================================================================")
+    except Exception as e:
+        print(f"Không thể khởi động Web Dashboard tự động: {e}")
+
     ai = ai_agent or RandomAgent(name="AI")
     pygame.init()
     pygame.display.set_caption("Liar's Dice — Bạn vs AI")
     screen = pygame.display.set_mode((W, H))
     clock = pygame.time.Clock()
-    game = LiarsDiceGUI(screen, ai, seed=seed, dice_per_player=dice_per_player)
+    game = LiarsDiceGUI(screen, ai, seed=seed, dice_per_player=dice_per_player,
+                        weights_path=weights_path)
 
     running = True
     while running:
@@ -487,5 +787,23 @@ if __name__ == "__main__":
     import os
     # Cấu hình đường dẫn để có thể chạy trực tiếp file gui.py từ Editor/IDE
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-    from agents.bayesian_agent import BayesianAgent
-    play_gui(BayesianAgent("BayesianAgent"))
+    from agents.cfr_agent import CFRAgent
+
+    # Ưu tiên file .gz đã commit; nếu không có thì lưu vào .gz mới
+    _weights_gz   = os.path.join(os.path.dirname(__file__), '..', 'experiments', 'cfr_heavy.weights.json.gz')
+    _weights_json = os.path.join(os.path.dirname(__file__), '..', 'experiments', 'cfr_heavy.weights.json')
+    _save_path = _weights_gz  # luôn lưu vào bản .gz (nén nhỏ)
+
+    cfr_bot = CFRAgent("CFRAgent")
+    for _w in (_weights_gz, _weights_json):
+        if os.path.exists(_w):
+            cfr_bot.load_weights(_w)
+            print(f"Đã nạp {len(cfr_bot.strategy_table)} trạng thái từ {os.path.basename(_w)}")
+            break
+    else:
+        print("Không tìm thấy weights, train nhanh 5000 vòng...")
+        cfr_bot.train(5000)
+
+    # weights_path → sau mỗi ván AI sẽ tự học thêm 200 vòng rồi lưu lại
+    # Mỗi lần bạn chơi xong, AI ngày càng "hiểu" cách chơi của bạn hơn!
+    play_gui(cfr_bot, weights_path=_save_path)

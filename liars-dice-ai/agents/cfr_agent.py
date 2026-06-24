@@ -57,7 +57,32 @@ class CFRAgent(Agent):
         self._game_state: Optional[GameState] = None
 
         # Lớp fallback an toàn khi gặp trạng thái lạ
-        self.fallback_agent: Optional[Agent] = None
+        from agents.bayesian_agent import BayesianAgent
+        self.fallback_agent = BayesianAgent(name="CFR_Bayes_Fallback")
+
+        # Thuộc tính phục vụ giám sát Real-time Dashboard
+        self.last_mode = "CFR (Tra bảng)"
+        self.last_visits = 0
+        self.last_distribution = {}
+        self.last_fallback_p_truth = None
+        self.last_fallback_threshold = None
+        self.last_fallback_modifier = None
+
+    def observe(self, action: Action, acting_player: int):
+        """Chuyển tiếp quan sát tới Bayesian fallback agent để theo dõi thói quen đối thủ."""
+        if self.fallback_agent and hasattr(self.fallback_agent, "observe"):
+            self.fallback_agent.observe(action, acting_player)
+
+    def reset(self):
+        """Reset trạng thái của CFR và Bayesian fallback agent."""
+        self.last_mode = "CFR (Tra bảng)"
+        self.last_visits = 0
+        self.last_distribution = {}
+        self.last_fallback_p_truth = None
+        self.last_fallback_threshold = None
+        self.last_fallback_modifier = None
+        if self.fallback_agent and hasattr(self.fallback_agent, "reset"):
+            self.fallback_agent.reset()
 
     # ------------------------------------------------------------------ helpers
     def _action_to_str(self, action: Action) -> str:
@@ -306,7 +331,18 @@ class CFRAgent(Agent):
         return total / (self.iterations_trained * len(self.regret_table))
 
     # --------------------------------------------------------------------- play
-    def act(self, observation: dict, legal_actions: List[Action]) -> Action:
+    def act(self, observation: dict, legal_actions: List[Action],
+            mixed_strategy: bool = False) -> Action:
+        """Chọn hành động tiếp theo.
+
+        Args:
+            mixed_strategy: Nếu True → AI chơi theo phân phối xác suất đầy đủ (CFR thực thụ).
+                Đôi khi nó sẽ bluff dù cầm bài xấu, đôi khi nó hô thật dù tưởng đang láo.
+                Bạn không thể đoán được! (Dùng khi muốn AI khó đoán hơn khi đánh với người.)
+                Nếu False → AI luôn chọn nước an toàn nhất (Argmax). Bot khác dễ thua hơn
+                nhưng trước người chơi thì đôi khi bị "đọc bài".
+        """
+        import random
         my_dice = tuple(observation["my_dice"])
         opp_count = observation["opponent_dice_count"]
         curr_bid = observation["current_bid"]
@@ -315,6 +351,9 @@ class CFRAgent(Agent):
         # GATING: chỉ tin dùng chiến lược đã học nếu infoset được thăm đủ nhiều; ngược lại
         # rơi xuống fallback (tránh đè nước tốt của fallback bằng nước học dở dang).
         if infoset in self.strategy_table and self.visit_counts.get(infoset, 0) >= self.MIN_VISITS:
+            self.last_mode = "CFR (Tra bảng)"
+            self.last_visits = self.visit_counts.get(infoset, 0)
+            
             strat_sums = self.strategy_table[infoset]
             legal_map = {self._action_to_str(a): a for a in legal_actions}
 
@@ -323,17 +362,52 @@ class CFRAgent(Agent):
                 if s in strat_sums:
                     valid[a] = max(0.0, strat_sums[s])
 
-            # ARGMAX: trước đối thủ CỐ ĐỊNH (Random/Prob/Bayes), best-response thường là
-            # nước đi CỨNG. Chọn hành động có xác suất trung bình cao nhất thay vì sample
-            # chiến lược hỗn hợp ⇒ sắc bén hơn, không tự "làm mềm" nước đi tốt.
-            if valid and sum(valid.values()) > 0:
-                return max(valid, key=valid.get)
+            total = sum(valid.values())
+            
+            # Tính toán phân phối xác suất
+            self.last_distribution = {}
+            if total > 0:
+                for a, w in valid.items():
+                    action_str = self._action_to_str(a)
+                    self.last_distribution[action_str] = float(w / total)
+            else:
+                for a in legal_actions:
+                    action_str = self._action_to_str(a)
+                    self.last_distribution[action_str] = 1.0 / len(legal_actions)
+
+            if valid and total > 0:
+                self.last_fallback_p_truth = None
+                self.last_fallback_threshold = None
+                self.last_fallback_modifier = None
+                
+                if mixed_strategy:
+                    # MIXED STRATEGY: sample ngẫu nhiên theo phân phối xác suất
+                    r = random.random()
+                    cumulative = 0.0
+                    for a, w in valid.items():
+                        cumulative += w / total
+                        if r <= cumulative:
+                            return a
+                    return list(valid.keys())[0]
+                else:
+                    # ARGMAX: luôn chọn nước có xác suất cao nhất
+                    return max(valid, key=valid.get)
 
         # Fallback an toàn: BayesianAgent (lai CFR + Bayes)
+        self.last_mode = "Bayes (Ứng biến)"
+        self.last_visits = self.visit_counts.get(infoset, 0)
+        self.last_distribution = {}
+        
         if self.fallback_agent is None:
             from agents.bayesian_agent import BayesianAgent
             self.fallback_agent = BayesianAgent(name="CFR_Bayes_Fallback")
-        return self.fallback_agent.act(observation, legal_actions)
+        action = self.fallback_agent.act(observation, legal_actions)
+        
+        self.last_fallback_p_truth = getattr(self.fallback_agent, "last_p_truth", None)
+        self.last_fallback_threshold = getattr(self.fallback_agent, "last_threshold", None)
+        self.last_fallback_modifier = getattr(self.fallback_agent, "last_modifier", None)
+        
+        return action
 
     # ------------------------------------------------------------- persistence
     def save_weights(self, filepath: str):
@@ -342,10 +416,34 @@ class CFRAgent(Agent):
             "strategy_table": self.strategy_table,
             "visit_counts": self.visit_counts,
         }
-        # File .gz được nén gzip (nhỏ ~7× ⇒ commit được); ngược lại ghi JSON thường.
-        opener = gzip.open if filepath.endswith(".gz") else open
-        with opener(filepath, "wt", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+        import tempfile
+        import os
+        
+        # Ghi vào file tạm cùng thư mục để đảm bảo đổi tên (rename) là atomic
+        dir_name = os.path.dirname(os.path.abspath(filepath))
+        os.makedirs(dir_name, exist_ok=True)
+        
+        with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False) as temp_meta:
+            temp_path = temp_meta.name
+            
+        try:
+            if filepath.endswith(".gz"):
+                f = gzip.open(temp_path, "wt", compresslevel=3, encoding="utf-8")
+            else:
+                f = open(temp_path, "w", encoding="utf-8")
+                
+            with f:
+                json.dump(data, f, ensure_ascii=False)
+                
+            # Đổi tên file tạm thành file chính thức (Atomic replace)
+            os.replace(temp_path, filepath)
+        except Exception as e:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            raise e
 
     def load_weights(self, filepath: str):
         # Tự nhận diện file nén gzip qua đuôi .gz để nạp được cả bản nén lẫn bản thường.

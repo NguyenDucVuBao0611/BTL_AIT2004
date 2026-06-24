@@ -1,4 +1,7 @@
 import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import tempfile
 import pytest
 from game.actions import Bid, Challenge
@@ -84,3 +87,29 @@ def test_cfr_agent_fallback():
     assert isinstance(action, Bid)
     assert action.face_value == 4
     assert action.quantity == 1
+
+
+def test_cfr_agent_observe():
+    agent = CFRAgent(name="CFR_Observer")
+    assert agent.fallback_agent is not None
+    
+    # Thiết lập ID
+    agent.fallback_agent.player_id = 1
+    agent.fallback_agent.opponent_id = 0
+    agent.fallback_agent.last_dice_counts = {1: 5, 0: 5}
+    
+    # 1. Gọi observe để chuyển tiếp một lượt cược của đối thủ
+    agent.observe(Bid(2, 3), 0)
+    # Tố cáo
+    agent.observe(Challenge(), 1)
+    
+    # Xác nhận last_challenge được cập nhật trên fallback agent
+    assert agent.fallback_agent.last_challenge is not None
+    assert agent.fallback_agent.last_challenge["bidder"] == 0
+    assert agent.fallback_agent.last_challenge["challenger"] == 1
+
+
+if __name__ == "__main__":
+    import pytest
+    sys.exit(pytest.main([__file__]))
+
