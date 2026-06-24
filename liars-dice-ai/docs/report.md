@@ -179,29 +179,55 @@ python main.py --mode exploit --iters 20000 --seed 0
 ## 5. Kết quả thực nghiệm
 
 > Chạy với `--seed 0`. Lệnh tái lập ở §8. Biểu đồ trong `results/`.
+>
+> **Thước đo chính của chất lượng CFR là `exploitability` giảm dần (§5.2)**, không phải
+> win‑rate vs heuristic. Lý do: trong trò chơi zero‑sum, chiến lược Nash *bảo đảm không thua
+> và không bị khai thác*, nhưng **không hứa hẹn vắt kiệt một đối thủ yếu‑nhưng‑không‑tầm‑thường**
+> — nó chỉ ăn những sai lầm rò rỉ ra trước chiến lược cố định của nó. Vì vậy biên ~5% trước
+> các baseline mạnh (dưới đây) đã là **lợi thế thật và có ý nghĩa**, không nên kỳ vọng "đè bẹp".
 
-### 5.1 Giải đấu round‑robin (200 ván/cặp, cân bằng ghế, CFR train nặng ~50k)
+### 5.1 Đối đầu trực tiếp giữa các agent (1000 ván/cặp, cân bằng ghế, CFR train nặng ~50k)
 
-| Agent | Win‑rate tổng | Ghi chú đối đầu |
-|---|---:|---|
-| **CFRAgent (CFR+, train nặng)** | **67.8%** | Thắng Probabilistic 50.5%, thắng Bayesian 53.0% |
-| ProbabilisticAgent | 67.3% | Thắng Bayesian 52.5%, thua CFR 49.5% |
-| BayesianAgent | 64.8% | Thua Probabilistic 47.5%, thua CFR 47.0% |
-| RandomAgent | 0.0% | Thua mọi agent có chiến lược |
+Bảng đối đầu tay‑đôi (ô [hàng][cột] = % **hàng** thắng **cột**, ± khoảng tin cậy 95%). Mỗi
+ô là 1000 ván cân bằng ghế:
 
-Nhận xét: mọi agent có chiến lược đè bẹp RandomAgent (100%). Sau khi **huấn luyện đủ nặng
-(~50k vòng, nạp từ `experiments/cfr_heavy.weights.json.gz`)**, **CFRAgent vươn lên DẪN ĐẦU**
-(67.8% tổng) — **vượt mốc Nash 50% trước CẢ hai** agent xác suất (thắng Probabilistic 50.5%,
-thắng Bayesian 53.0%), đúng lý thuyết: chiến lược tiệm‑cận‑Nash trong trò chơi đối xứng
-tổng‑bằng‑không phải ≥ 50% trước mọi đối thủ khai thác được. Đây là bước nhảy lớn so với bản
-**chưa train đủ** (vs Probabilistic chỉ ~30–40%, xem §5.2): hạn chế trước đây là **thiếu
-huấn luyện (data‑starvation)**, không phải trần do trừu tượng hoá.
+| hàng \ cột | Random | Probabilistic | Bayesian | CFR |
+|---|---:|---:|---:|---:|
+| **CFRAgent** | 100% | **54.8% ± 3.1** | **54.8% ± 3.1** | — |
+| ProbabilisticAgent | 100% | — | 48.0% ± 3.1 | 45.2% ± 3.1 |
+| BayesianAgent | 100% | 52.0% ± 3.1 | — | 45.2% ± 3.1 |
+| RandomAgent | — | 0% | 0% | 0% |
 
-![Ma trận tỷ lệ thắng giữa các agent](../results/win_matrix.png)
+**Win‑rate đối đầu (BỎ RandomAgent khỏi trung bình)** — trung bình trên các đối thủ *có chiến lược*:
 
-![Win-rate tổng của từng agent](../results/agent_stats.png)
+| Agent | Win‑rate đối đầu (bỏ Random) |
+|---|---:|
+| **CFRAgent** | **54.8% ± 2.2** |
+| BayesianAgent | 48.6% ± 2.2 |
+| ProbabilisticAgent | 46.6% ± 2.2 |
 
-### 5.2 Hội tụ CFR+ (40000 vòng lặp, bước 2000, eval 200 ván/mốc, depth 4)
+Nhận xét:
+- **CFRAgent là agent DUY NHẤT trên mốc Nash 50%** khi loại đối thủ tầm thường — và **có ý
+  nghĩa thống kê** (CI `[52.6 %, 57.0 %]` không chạm 50%). Nó **thắng cả Probabilistic lẫn
+  Bayesian** ở đối đầu trực tiếp (~54.8% mỗi bên, CI `[51.7 %, 57.9 %]`), đúng kỳ vọng của
+  một chiến lược tiệm‑cận‑Nash.
+- Probabilistic vs Bayesian gần như **huề** (48% / 52%, CI chứa 50%) — đây là hai baseline
+  mạnh ngang nhau, nên trần lợi thế của CFR trước chúng vốn nhỏ.
+- **RandomAgent thua 100%** trước mọi agent có chiến lược: đây là **phép thử tỉnh táo
+  (sanity check)**, không phải thước đo. Vì một ván chơi đến khi **hết sạch xúc xắc** (loại
+  trực tiếp), mọi lợi thế kỹ năng bị khuếch đại qua nhiều vòng ⇒ thắng tuyệt đối trước người
+  chơi bừa là **hợp lý**, không phải lỗi.
+
+> ⚠️ **Vì sao KHÔNG dùng "win‑rate trung bình trên mọi đối thủ".** Gộp RandomAgent vào trung
+> bình làm *mọi* agent vọt lên ~65–68% (đều nhờ đập Random 100%) và che mất khác biệt thật —
+> khiến CFR trông "dẫn đầu" chỉ hơn 0.5% (trong nhiễu). Bảng đối đầu tay‑đôi ở trên mới phản
+> ánh đúng sức mạnh tương đối.
+
+![Ma trận tỷ lệ thắng giữa các agent (gồm cả Random để đối chiếu)](../results/win_matrix.png)
+
+![Win-rate đối đầu giữa các agent có chiến lược, bỏ Random, kèm CI 95%](../results/agent_stats.png)
+
+### 5.2 Hội tụ CFR+ — BẰNG CHỨNG CHÍNH (40000 vòng lặp, bước 2000, eval 200 ván/mốc, depth 4)
 
 | Vòng lặp | raw_bound = Σ regret⁺ / T (↓) | Win‑rate vs Probabilistic | #infoset |
 |---:|---:|---:|---:|
