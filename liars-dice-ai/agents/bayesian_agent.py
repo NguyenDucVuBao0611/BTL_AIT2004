@@ -69,6 +69,13 @@ class BayesianAgent(Agent):
         # Số xúc xắc gần nhất của hai bên để phát hiện ai mất xúc xắc sau challenge
         self.last_dice_counts: Optional[dict] = None
 
+        # Các thuộc tính log phục vụ vẽ đồ thị và Web Dashboard
+        self.last_p_truth: Optional[float] = None
+        self.last_threshold: Optional[float] = None
+        self.last_modifier: Optional[float] = None
+        self.last_base_rate: Optional[float] = None
+        self.last_action_type: str = "cược"
+
         self._skip_file_io = "pytest" in sys.modules
         self.load_profile()
 
@@ -330,29 +337,40 @@ class BayesianAgent(Agent):
                 if last_opp_bid.quantity > total_dice / 3.0:
                     history_bluff_modifier = 1.2  # Mở màn hô quá to -> có độ khả nghi cao hơn
 
-        # 2. Ngưỡng động ∈ [0.35, 0.65] tỉ lệ thuận với xác suất bluff trong ngữ cảnh phù hợp nhất
+        # 2. Ngưỡng động cân bằng: cho phép giảm xuống tối thiểu 0.25 khi đối thủ cực kỳ trung thực (rate thấp)
+        # để tránh AI quá khờ khạo, và tăng lên tối đa 0.65 khi đối thủ rất hay bluff.
         base_bluff_rate = self.get_best_bluff_rate(observation, current_bid)
         rate = base_bluff_rate * history_bluff_modifier
-        dynamic_threshold = max(0.35, min(0.65, 0.4 + rate * 0.2))
+        dynamic_threshold = max(0.25, min(0.65, 0.3 + rate * 0.5))
+
+        # Lưu thông số để hiển thị trên Web Dashboard
+        self.last_base_rate = base_bluff_rate
+        self.last_modifier = history_bluff_modifier
+        self.last_threshold = dynamic_threshold
 
         # Logic ra quyết định
         my_dice = observation["my_dice"]
         counts = {f: count_matching_dice([my_dice], f) for f in range(1, 7)}
 
+        def choose(act_obj: Action) -> Action:
+            self.last_action_type = "tố cáo" if isinstance(act_obj, Challenge) else "cược"
+            return act_obj
+
         # Trường hợp đi đầu vòng (chưa có ai cược)
         if current_bid is None:
+            self.last_p_truth = None
             best_face = max(range(1, 7), key=lambda f: (counts[f], f))
             preferred_bids = [
                 action for action in legal_actions
                 if isinstance(action, Bid) and action.face_value == best_face
             ]
             if preferred_bids:
-                return min(preferred_bids, key=lambda b: b.quantity)
+                return choose(min(preferred_bids, key=lambda b: b.quantity))
 
             all_bids = [action for action in legal_actions if isinstance(action, Bid)]
             if all_bids:
-                return min(all_bids, key=lambda b: b.quantity)
-            return legal_actions[0]
+                return choose(min(all_bids, key=lambda b: b.quantity))
+            return choose(legal_actions[0])
 
         # Trường hợp đối thủ đã cược
         Q = current_bid.quantity
@@ -364,10 +382,11 @@ class BayesianAgent(Agent):
 
         # Xác suất đối thủ nói thật
         P_truth = binomial_probability(k, n, p)
+        self.last_p_truth = P_truth
 
         # Quyết định Challenge dựa trên ngưỡng động đã hiệu chỉnh
         if P_truth < dynamic_threshold and any(isinstance(a, Challenge) for a in legal_actions):
-            return Challenge()
+            return choose(Challenge())
 
         # Ngược lại, nâng cược
         sorted_faces = sorted(range(1, 7), key=lambda f: (counts[f], f), reverse=True)
@@ -384,14 +403,14 @@ class BayesianAgent(Agent):
                 if isinstance(action, Bid) and action.face_value == face
             ]
             if matching_bids:
-                return min(matching_bids, key=lambda b: b.quantity)
+                return choose(min(matching_bids, key=lambda b: b.quantity))
 
         all_bids = [action for action in legal_actions if isinstance(action, Bid)]
         if all_bids:
-            return min(all_bids, key=lambda b: b.quantity)
+            return choose(min(all_bids, key=lambda b: b.quantity))
 
         challenge_actions = [a for a in legal_actions if isinstance(a, Challenge)]
         if challenge_actions:
-            return challenge_actions[0]
+            return choose(challenge_actions[0])
 
-        return legal_actions[0]
+        return choose(legal_actions[0])

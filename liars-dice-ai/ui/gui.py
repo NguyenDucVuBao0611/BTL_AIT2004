@@ -36,7 +36,7 @@ MIN_FACE, MAX_FACE = 1, 6
 NUM_FACES = 6
 
 # ---- Kích thước & màu ----
-W, H = 800, 720
+W, H = 1024, 720
 FPS = 60
 AI_THINK_MS = 900
 
@@ -547,12 +547,12 @@ class LiarsDiceGUI:
     # ---------- vẽ ----------
     def _build_buttons(self):
         self.buttons = {
-            "q-": Button((200, 560, 44, 44), "−", BLUE_BTN, self.f_mid),
-            "q+": Button((310, 560, 44, 44), "+", BLUE_BTN, self.f_mid),
-            "f-": Button((450, 560, 44, 44), "−", BLUE_BTN, self.f_mid),
-            "f+": Button((560, 560, 44, 44), "+", BLUE_BTN, self.f_mid),
-            "bid": Button((200, 630, 200, 56), "CƯỢC (BID)", GREEN_BTN, self.f_mid),
-            "liar": Button((420, 630, 184, 56), "LIAR!", RED, self.f_mid),
+            "q-": Button((360, 560, 44, 44), "−", BLUE_BTN, self.f_mid),
+            "q+": Button((470, 560, 44, 44), "+", BLUE_BTN, self.f_mid),
+            "f-": Button((610, 560, 44, 44), "−", BLUE_BTN, self.f_mid),
+            "f+": Button((720, 560, 44, 44), "+", BLUE_BTN, self.f_mid),
+            "bid": Button((360, 630, 200, 56), "CƯỢC (BID)", GREEN_BTN, self.f_mid),
+            "liar": Button((570, 630, 200, 56), "LIAR!", RED, self.f_mid),
         }
 
     def draw(self):
@@ -581,19 +581,19 @@ class LiarsDiceGUI:
         hi_face = self.reveal["face"] if self.reveal else None
         for i in range(self.counts[AI]):
             val = ai_dice[i] if i < len(ai_dice) else 1
-            draw_die(s, 168 + i * 96, 150, 80,
+            draw_die(s, 120 + i * 96, 150, 80,
                      val if ai_reveal else 0,
                      hidden=not ai_reveal,
                      highlight=ai_reveal and (val == hi_face or val == 1) and hi_face is not None)
 
         # --- Bid hiện tại (giữa) ---
         cur = self.state.current_bid
-        pygame.draw.rect(s, PANEL, (40, 270, 720, 96), border_radius=14)
+        pygame.draw.rect(s, PANEL, (40, 270, 600, 96), border_radius=14)
         if cur is None:
             ct = self.f_mid.render("Chưa có cược — bạn ra cược trước", True, TEXT)
         else:
             ct = self.f_big.render(f"Cược: {cur.quantity} × mặt {cur.face_value}", True, WHITE)
-        s.blit(ct, ct.get_rect(center=(400, 318)))
+        s.blit(ct, ct.get_rect(midleft=(64, 318)))
 
         # --- Khu người chơi (dưới) ---
         player_label_color = (120, 200, 255)
@@ -606,8 +606,23 @@ class LiarsDiceGUI:
         self._draw_label(f"BẠN{status_suffix}", 40, 396, player_label_color)
         
         for i, val in enumerate(self.state.hands[HUMAN]):
-            draw_die(s, 168 + i * 96, 426, 80, val,
+            draw_die(s, 120 + i * 96, 426, 80, val,
                      highlight=hi_face is not None and ai_reveal and (val == hi_face or val == 1))
+
+        # --- Log (phải) ---
+        log_x, log_y, log_w, log_h = 680, 120, 304, 470
+        pygame.draw.rect(s, PANEL, (log_x, log_y, log_w, log_h), border_radius=14)
+        lt = self.f_sm.render("Diễn biến", True, GOLD)
+        s.blit(lt, (700, 132))
+        max_w = log_x + log_w - 700 - 14    # bề rộng tối đa của 1 dòng chữ
+        line_h = 26
+        top = 168
+        budget = (log_y + log_h - top - 8) // line_h   # số dòng vẽ vừa khung
+        wrapped: list[str] = []
+        for line in self.log_lines:
+            wrapped.extend(self._wrap_text(line, self.f_log, max_w))
+        for i, wl in enumerate(wrapped[-budget:]):
+            s.blit(self.f_log.render(wl, True, TEXT), (700, top + i * line_h))
 
         # --- Điều khiển / trạng thái ---
         if self.phase == "human_turn":
@@ -652,12 +667,12 @@ class LiarsDiceGUI:
     def _draw_controls(self, mouse):
         s = self.screen
         # Steppers
-        s.blit(self.f_sm.render("Số lượng", True, DIM), (200, 532))
-        s.blit(self.f_sm.render("Mặt", True, DIM), (450, 532))
+        s.blit(self.f_sm.render("Số lượng", True, DIM), (360, 532))
+        s.blit(self.f_sm.render("Mặt", True, DIM), (610, 532))
         qv = self.f_mid.render(str(self.sel_q), True, WHITE)
-        s.blit(qv, qv.get_rect(center=(277, 582)))
+        s.blit(qv, qv.get_rect(center=(437, 582)))
         fv = self.f_mid.render(str(self.sel_f), True, WHITE)
-        s.blit(fv, fv.get_rect(center=(527, 582)))
+        s.blit(fv, fv.get_rect(center=(687, 582)))
         legal = self._sel_is_legal()
         self.buttons["bid"].enabled = legal
         self.buttons["liar"].enabled = self.state.current_bid is not None
@@ -665,10 +680,10 @@ class LiarsDiceGUI:
             self.buttons[key].draw(s, mouse)
         if not legal:
             warn = self.f_sm.render("(nước cược phải cao hơn cược hiện tại)", True, (255, 200, 120))
-            s.blit(warn, warn.get_rect(center=(400, 696)))
+            s.blit(warn, (360, 700 - 4))
 
     def _draw_center_msg(self, text, color):
-        box = pygame.Rect(200, 600, 400, 90)
+        box = pygame.Rect(360, 600, 404, 90)
         pygame.draw.rect(self.screen, PANEL_LIGHT, box, border_radius=12)
         t = self.f_mid.render(text, True, color)
         self.screen.blit(t, t.get_rect(center=box.center))
@@ -677,14 +692,14 @@ class LiarsDiceGUI:
         rv = self.reveal
         loser_txt = "Bạn THUA vòng" if rv["loser"] == HUMAN else "AI THUA vòng"
         color = RED if rv["loser"] == HUMAN else GREEN_BTN
-        box = pygame.Rect(40, 600, 720, 96)
+        box = pygame.Rect(40, 600, 600, 96)
         pygame.draw.rect(self.screen, PANEL_LIGHT, box, border_radius=12)
         l1 = self.f_mid.render(
             f"Mặt {rv['face']}: thực tế {rv['actual']} (cược {rv['claimed']}) → {loser_txt}",
             True, color)
-        self.screen.blit(l1, l1.get_rect(center=(400, 624)))
+        self.screen.blit(l1, (60, 612))
         l2 = self.f_sm.render("Bấm chuột để sang vòng tiếp theo", True, DIM)
-        self.screen.blit(l2, l2.get_rect(center=(400, 668)))
+        self.screen.blit(l2, (60, 656))
 
     def _draw_gameover(self):
         overlay = pygame.Surface((W, H), pygame.SRCALPHA)

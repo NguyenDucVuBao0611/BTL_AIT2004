@@ -798,7 +798,7 @@ HTML_CONTENT = """<!DOCTYPE html>
                 
                 const valLabel = document.getElementById('gauge-p-truth-label');
                 valLabel.style.left = `${suspicionPercent}%`;
-                valLabel.innerText = `Nghi ngờ = ${suspicionPercent.toFixed(1)}%`;
+                valLabel.innerText = `Độ nghi ngờ = ${suspicionPercent.toFixed(1)}%`;
 
                 // Alert action recommendation
                 const alertBox = document.getElementById('decision-alert-box');
