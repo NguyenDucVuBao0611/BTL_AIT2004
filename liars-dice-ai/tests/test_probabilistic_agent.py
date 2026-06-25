@@ -1,3 +1,7 @@
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import pytest
 from game.actions import Bid, Challenge
 from agents.probabilistic_agent import ProbabilisticAgent
@@ -74,3 +78,8 @@ def test_probabilistic_agent_raise_on_high_probability():
     # Phải nâng cược. Do tay ta giữ nhiều mặt 4 nhất (3 viên), nên chọn cược mặt 4 có số lượng nhỏ nhất hợp lệ
     # Trong legal_actions, Bid(4, 4) là hợp lệ cho mặt 4
     assert action == Bid(4, 4)
+
+
+if __name__ == "__main__":
+    import pytest
+    sys.exit(pytest.main([__file__]))

@@ -1,0 +1,50 @@
+{
+  "timestamp": 498615,
+  "phase": "Kết thúc ván đấu",
+  "last_actor": null,
+  "action_chosen": "",
+  "mode": "CFR (Tra bảng)",
+  "visits": 678,
+  "p_truth": null,
+  "threshold": null,
+  "modifier": null,
+  "base_rate": null,
+  "distribution": {
+    "Challenge": 0.49998155420041773,
+    "Bid:3:2": 0.49998155420041773,
+    "Bid:3:3": 6.14859986075202e-06,
+    "Bid:3:4": 6.14859986075202e-06,
+    "Bid:3:5": 6.14859986075202e-06,
+    "Bid:3:6": 6.14859986075202e-06,
+    "Bid:4:1": 6.14859986075202e-06,
+    "Bid:5:1": 6.14859986075202e-06
+  },
+  "ai_dice": [
+    1,
+    2,
+    2,
+    6
+  ],
+  "opponent_dice_count": 0,
+  "current_bid": {
+    "quantity": 3,
+    "face_value": 1
+  },
+  "player_streak": -1,
+  "bayesian_context_metrics": {
+    "resolved_opp_bids": 6,
+    "opp_bluffs": 5,
+    "resolved_opp_bids_low_dice": 3,
+    "opp_bluffs_low_dice": 2,
+    "resolved_opp_bids_winning": 0,
+    "opp_bluffs_winning": 0,
+    "resolved_opp_bids_losing": 5,
+    "opp_bluffs_losing": 4,
+    "resolved_opp_bids_high_qty": 5,
+    "opp_bluffs_high_qty": 5,
+    "resolved_opp_bids_face1": 4,
+    "opp_bluffs_face1": 4,
+    "our_bids_high_face": 6,
+    "opp_challenges_high_face": 0
+  }
+}

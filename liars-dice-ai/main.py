@@ -91,8 +91,9 @@ def run_tournament(num_games=30, seed=0, make_plots=True, cfr_iters=40000):
     if make_plots:
         try:
             from evaluation.plots import plot_win_matrix, plot_overall_winrate
-            p1 = plot_win_matrix(result)
-            p2 = plot_overall_winrate(result)
+            results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+            p1 = plot_win_matrix(result, os.path.join(results_dir, "win_matrix.png"))
+            p2 = plot_overall_winrate(result, os.path.join(results_dir, "agent_stats.png"))
             print(f"Đã lưu biểu đồ: {p1}, {p2}")
         except Exception as e:  # pragma: no cover - thiếu matplotlib không nên làm hỏng giải đấu
             print(f"(Bỏ qua vẽ biểu đồ: {e})")
@@ -112,8 +113,9 @@ def run_exploit(total_iterations=20000, step=2000, eval_games=200, seed=0, make_
     if make_plots:
         try:
             from evaluation.plots import plot_convergence, plot_infoset_growth
-            p = plot_convergence(history)
-            p2 = plot_infoset_growth(history)
+            results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
+            p = plot_convergence(history, os.path.join(results_dir, "cfr_convergence.png"))
+            p2 = plot_infoset_growth(history, os.path.join(results_dir, "cfr_infoset_growth.png"))
             print(f"Đã lưu biểu đồ hội tụ: {p}, {p2}")
         except Exception as e:  # pragma: no cover
             print(f"(Bỏ qua vẽ biểu đồ: {e})")

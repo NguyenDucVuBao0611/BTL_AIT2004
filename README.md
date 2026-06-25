@@ -35,6 +35,20 @@ Chạy test:
 python -m pytest -q
 ```
 
+## Web Dashboard (Giám sát tư duy AI thời gian thực)
+Khi bạn chạy game ở chế độ đồ họa (`--mode gui`), một máy chủ web cục bộ sẽ tự động khởi chạy song song và tự động mở trình duyệt tại địa chỉ:
+```
+http://localhost:8000
+```
+Giao diện Web Dashboard (phong cách Glassmorphism tối hiện đại) hiển thị trực quan các dữ liệu toán học:
+* **Trạng thái trận đấu:** Giai đoạn hiện tại, chuỗi trận của người chơi, số lượng xúc xắc và quân xúc xắc hiện có của AI.
+* **Quyết định & Logic AI (Bayes):**
+  * Xác suất đối thủ nói thật ($P_{truth}$) và Ngưỡng nghi ngờ động ($Threshold$).
+  * Biểu đồ thanh đo trực quan: AI sẽ thách thức **LIAR! (Tố cáo)** khi Độ nghi ngờ vượt quá Ngưỡng nghi ngờ.
+  * Hệ số hiệu chỉnh bước nhảy cược ($Modifier$) và Bluff rate trong ngữ cảnh hiện tại.
+* **Phân phối chiến thuật CFR:** Hiển thị dưới dạng biểu đồ phân phối xác suất chọn của từng hành động tối ưu trong bảng chiến lược CFR của AI.
+* **Hồ sơ thói quen người chơi (Bayes Multi-Context):** Thống kê và ước lượng tỷ lệ bluff của bạn theo 6 ngữ cảnh cụ thể ngay trong ván đấu thực tế.
+
 > 💡 **Weights CFR đã train sẵn:** bản nén `experiments/cfr_heavy.weights.json.gz` (~7MB)
 > được commit kèm repo, nên clone về là chơi/đấu với CFR **mạnh** ngay, không cần train lại
 > 40k vòng. `main.py` tự nạp file `.gz` này. Nếu xóa file đi, các mode sẽ tự train fallback
