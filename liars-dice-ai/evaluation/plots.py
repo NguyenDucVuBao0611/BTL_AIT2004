@@ -42,19 +42,40 @@ def plot_win_matrix(result: Dict, path: str = "results/win_matrix.png") -> str:
     return path
 
 
-def plot_overall_winrate(result: Dict, path: str = "results/agent_stats.png") -> str:
-    """Vẽ cột win-rate tổng của từng agent."""
-    _ensure_dir(path)
-    names = result["names"]
-    rates = [result["overall_winrate"][a] * 100 for a in names]
+def plot_overall_winrate(result: Dict, path: str = "results/agent_stats.png",
+                         exclude: tuple = ("RandomAgent",)) -> str:
+    """Vẽ cột win-rate đối đầu, LOẠI các đối thủ tầm thường trong `exclude` khỏi trung bình.
 
-    fig, ax = plt.subplots(figsize=(1.4 * len(names) + 2, 4))
-    bars = ax.bar(names, rates, color="steelblue")
-    ax.axhline(50, color="gray", linestyle="--", linewidth=1, label="50% (hòa)")
-    ax.set_ylabel("Win-rate tổng (%)"); ax.set_ylim(0, 100)
-    ax.set_title("Win-rate trung bình trên mọi đối thủ")
-    for bar, r in zip(bars, rates):
-        ax.text(bar.get_x() + bar.get_width() / 2, r + 1, f"{r:.1f}%", ha="center")
+    Mỗi cột = win-rate trung bình của agent trên các đối thủ KHÔNG tầm thường, kèm thanh sai
+    số 95% (xấp xỉ chuẩn). Loại RandomAgent vì đập một baseline tầm thường (mọi agent thắng
+    ~100%) sẽ thổi phồng win-rate của tất cả và che mất khác biệt thật giữa các agent có
+    chiến lược — vốn xúm quanh mốc Nash 50%.
+    """
+    import math
+    _ensure_dir(path)
+    wm = result["win_matrix"]
+    ng = result["num_games"]
+    names = [n for n in result["names"] if n not in exclude]
+
+    rates, errs = [], []
+    for a in names:
+        opps = [b for b in names if b != a]
+        n_games = len(opps) * ng
+        wins = sum(wm[a][b] for b in opps)
+        p = wins / n_games if n_games else 0.0
+        rates.append(p * 100)
+        se = math.sqrt(p * (1 - p) / n_games) if n_games else 0.0
+        errs.append(1.96 * se * 100)  # khoảng tin cậy 95%
+
+    fig, ax = plt.subplots(figsize=(max(7, 1.6 * len(names) + 2), 4.2))
+    bars = ax.bar(names, rates, yerr=errs, capsize=6, color="steelblue",
+                  error_kw={"ecolor": "dimgray"})
+    ax.axhline(50, color="gray", linestyle="--", linewidth=1, label="50% (mốc Nash)")
+    ax.set_ylabel("Win-rate đối đầu (%)"); ax.set_ylim(0, 100)
+    excl = ", ".join(exclude)
+    ax.set_title(f"Win-rate đối đầu giữa agent có chiến lược (bỏ {excl}, CI 95%)")
+    for bar, r, e in zip(bars, rates, errs):
+        ax.text(bar.get_x() + bar.get_width() / 2, r + e + 1.8, f"{r:.1f}%", ha="center")
     ax.legend()
     fig.tight_layout()
     fig.savefig(path, dpi=120)
